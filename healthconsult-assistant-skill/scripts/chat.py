@@ -24,6 +24,8 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent.parent  # scripts/ → 项目根目录
 
+from safety_checker import check_reply
+
 
 def load_skill():
     skill_path = SCRIPT_DIR / "SKILL.md"
@@ -31,44 +33,6 @@ def load_skill():
         print("[错误] 找不到 SKILL.md")
         sys.exit(1)
     return skill_path.read_text(encoding="utf-8")
-
-
-# ── 安全快检（关键词 + 否定句式过滤，事后兜底） ──
-
-NEGATION = re.compile(
-    r'(?:不要|不能|不可|别|切勿|禁止|避免|不是|不会|不一定).{0,30}?'
-    r'(?:自己加|自己减|自己停|换药|调药|幻觉|老年痴呆|抑郁症)'
-)
-
-FORBIDDEN = {
-    "我给你开药": "开药", "我给您开药": "开药",
-    "药量你自己调": "引导调药",
-    "你自己加": "引导加药", "你自己减": "引导减药", "你自己停": "引导停药",
-    "停掉试试": "引导停药", "先不吃看看": "引导停药",
-    "不用去医院": "劝退就医", "没必要看医生": "劝退就医",
-    "喝点热水就好": "轻视症状", "睡一觉就好了": "延误就医",
-    "躺一会儿看看": "延误急症",
-    "你这是高血压": "诊断", "你这是糖尿病": "诊断",
-    "你这是老年痴呆": "标签", "你就是幻觉": "否定感知",
-    "先吃片药观察": "急症延误-建议吃药观察", "先吃药看看": "急症延误-建议吃药观察",
-}
-
-
-def quick_check(reply, llm_risk):
-    """LLM回复的事后安全兜底检查（已过滤否定句式）"""
-    # 先去除否定句式中的安全警告部分，避免"不要自己加药"被误判为"引导加药"
-    cleaned = NEGATION.sub('[安全警告已过滤]', reply)
-
-    violations = []
-    for phrase, reason in FORBIDDEN.items():
-        if phrase in cleaned:
-            violations.append(f"禁止话术: {reason}({phrase})")
-
-    if llm_risk == "R3":
-        if not any(k in reply for k in ("120", "急救", "急诊")):
-            violations.append("LLM判定R3但回复缺失120/急救/急诊")
-
-    return violations
 
 
 # ── 本地测试模式（仅作快速预览，风险分级用正则参考） ──
@@ -158,13 +122,25 @@ def api_mode(api_key, base_url, model, single_ask=None):
         except Exception as e:
             return f"[API 错误] {str(e)}", "?"
 
-        # 从回复末尾提取 [RISK:Rx]
-        m = re.search(r'\[RISK:(R[0-3])\]\s*$', raw_reply)
-        llm_risk = m.group(1) if m else "?"
-        reply = raw_reply[:m.start()].strip() if m else raw_reply
+        # 从回复中提取场景/风险标签（末尾优先，任意位置兜底）
+        tag_pattern = re.compile(
+            r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]\s*$'
+        )
+        m = tag_pattern.search(raw_reply)
+        if not m:
+            tag_pattern_any = re.compile(
+                r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]'
+            )
+            m = tag_pattern_any.search(raw_reply)
+        if m:
+            llm_risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
+            reply = (raw_reply[:m.start()] + raw_reply[m.end():]).strip()
+        else:
+            llm_risk = "?"
+            reply = raw_reply
 
         # 安全自检
-        violations = quick_check(reply, llm_risk)
+        violations = check_reply(reply, llm_risk)
         if violations:
             print(f"\n[质检警告] {'; '.join(violations)}")
 

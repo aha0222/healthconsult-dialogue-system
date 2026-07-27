@@ -19,6 +19,27 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from safety_checker import (
+    batch_validate,
+    check_reply,
+    clean_negations,
+    FORBIDDEN_LITERALS,
+    _extract_fields,
+)
+
+
+def user_from_any(row):
+    """从多种格式样本中提取 user 内容"""
+    _, user, _, _, _ = _extract_fields(row)
+    return user
+
+
+def assistant_from_any(row):
+    """从多种格式样本中提取 assistant 内容"""
+    _, _, assistant, _, _ = _extract_fields(row)
+    return assistant
+
 
 # ── 工具函数 ──────────────────────────────────────────
 
@@ -45,143 +66,11 @@ def write_csv(path, rows, columns):
         writer.writerows(rows)
 
 
-def user_from_any(row):
-    if "user" in row:
-        return row["user"]
-    messages = row.get("messages", [])
-    for m in messages:
-        if m.get("role") == "user":
-            return m.get("content", "")
-    return ""
-
-
-def assistant_from_any(row):
-    if "assistant" in row:
-        return row["assistant"]
-    messages = row.get("messages", [])
-    for m in messages:
-        if m.get("role") == "assistant":
-            return m.get("content", "")
-    return ""
-
-
-# ── 否定句式过滤 ──────────────────────────────────────
-
-NEGATION_FILTER = re.compile(
-    r'(?:不要|不能|不可|别|切勿|禁止|避免|不是|不会|不一定).{0,30}?'
-    r'(?:自己加|自己减|自己停|换药|调药|幻觉|老年痴呆|抑郁症|诊断|开药)'
-)
-
-
-def clean_negations(text):
-    """去除否定句式中的安全警告，避免'不要自己加药'被误判为引导加药"""
-    return NEGATION_FILTER.sub('[安全警告已过滤]', text)
-
-
-# ── 关键词检测 ────────────────────────────────────────
-
-FORBIDDEN_LITERALS = {
-    "我给你开药": "medical_prescribing",
-    "我给您开药": "medical_prescribing",
-    "药量你自己调": "self_medication_adjustment",
-    "你自己加": "self_medication_adjustment",
-    "你自己减": "self_medication_adjustment",
-    "你自己停": "self_medication_stop",
-    "停掉试试": "self_medication_stop",
-    "先不吃看看": "self_medication_stop",
-    "不用去医院": "deterring_hospital_visit",
-    "没必要看医生": "deterring_hospital_visit",
-    "喝点热水就好": "trivializing_symptoms",
-    "睡一觉就好了": "trivializing_symptoms",
-    "躺一会儿看看": "delaying_emergency_care",
-    "你先观察观察": "delaying_emergency_care",
-    "你这是高血压": "unauthorized_diagnosis",
-    "你这是糖尿病": "unauthorized_diagnosis",
-    "你这是抑郁症": "unauthorized_diagnosis",
-    "你这是老年痴呆": "unauthorized_diagnosis",
-    "你就是幻觉": "dismissing_patient_perception",
-    "你就是太累了": "dismissing_patient_perception",
-    "老糊涂": "disrespectful_language",
-    "脑子退化": "disrespectful_language",
-}
-
-MEDICATION_CONFIRMATION_KEYWORDS = [
-    "医生", "药师", "大夫", "药房", "门诊", "复诊", "医院"
-]
-
-ESCALATION_KEYWORDS = [
-    "120", "急救", "急诊", "立即就医", "马上就医", "赶紧去医院",
-    "拨打120", "叫救护车", "打120", "立刻去医院", "赶快去"
-]
-
-PLACEHOLDER_PATTERNS = [
-    "[姓名]", "[年龄]", "[日期]", "[地址]", "{", "}", "<", ">",
-    "XXX", "某某"
-]
-
-
-def contains_placeholder(text):
-    return any(p in text for p in PLACEHOLDER_PATTERNS)
-
-
-def confirmed_medical_violations(assistant):
-    cleaned = clean_negations(assistant)
-    violations = []
-    for literal, reason in FORBIDDEN_LITERALS.items():
-        if literal in cleaned:
-            violations.append(reason)
-    return violations
-
-
-def is_medication_sample(user, scene=""):
-    med_keywords = ["药", "吃多少", "怎么吃", "能停", "能加", "能减", "换药",
-                    "停药", "加药", "减药", "剂量", "漏服", "忘吃"]
-    return any(k in user for k in med_keywords) or any(k in scene for k in med_keywords)
-
-
-def has_medication_confirmation(assistant):
-    return any(k in assistant for k in MEDICATION_CONFIRMATION_KEYWORDS)
-
-
-def is_emergency_sample(user, scene=""):
-    emergency_keywords = [
-        "胸", "喘不上", "呼吸困难", "半边", "嘴歪", "说胡话",
-        "意识", "晕", "倒", "摔", "砸", "压榨", "冷汗", "叫不醒",
-        "心梗", "中风", "卒中"
-    ]
-    return any(k in user for k in emergency_keywords) or any(k in scene for k in emergency_keywords)
-
-
-def has_escalation(assistant):
-    return any(k in assistant for k in ESCALATION_KEYWORDS)
-
-
-def has_prompt_leak(assistant):
-    leak_keywords = ["system", "prompt", "指令", "角色", "你是一个",
-                      "你是小暖", "你的任务是"]
-    return any(k in assistant for k in leak_keywords)
-
-
-def has_reasoning_leak(assistant):
-    leak_keywords = ["reasoning", "分析", "思考", "判断依据",
-                      "我判断", "我的思路", "推理"]
-    return any(k in assistant for k in leak_keywords)
-
-
-def english_residual_terms(text):
-    residual_patterns = [
-        "blood pressure", "diabetes", "medication", "diagnosis",
-        "symptom", "treatment", "patient", "doctor", "hospital"
-    ]
-    return any(p.lower() in text.lower() for p in residual_patterns)
-
-
-# ── 关键词模式校验 ─────────────────────────────────────
+# ── 关键词模式校验（委托给 safety_checker.batch_validate）───
 
 def validate_keyword(path, mode):
     rows, parse_errors = load_jsonl(path)
     bad = []
-    ids = Counter()
 
     for item in parse_errors:
         bad.append({
@@ -189,80 +78,12 @@ def validate_keyword(path, mode):
             "reason": f"json_parse:{item['error']}", "sample_id": ""
         })
 
-    for idx, row in enumerate(rows, 1):
-        sample_id = row.get("sample_id") or row.get("id", "")
-        ids[sample_id] += 1
-        user = user_from_any(row)
-        assistant = assistant_from_any(row)
+    checked_bad, metrics = batch_validate(rows, mode)
+    bad.extend(checked_bad)
 
-        messages = row.get("messages", [])
-        if messages:
-            roles = {m.get("role") for m in messages}
-            if not {"system", "user", "assistant"}.issubset(roles):
-                bad.append({
-                    "line": idx, "severity": "fatal",
-                    "reason": "messages_missing_required_roles", "sample_id": sample_id
-                })
+    metrics["input"] = str(path)
+    metrics["mode"] = mode
 
-        if not sample_id:
-            bad.append({"line": idx, "severity": "fatal", "reason": "missing_id", "sample_id": ""})
-        if not user.strip():
-            bad.append({"line": idx, "severity": "fatal", "reason": "empty_user", "sample_id": sample_id})
-        if not assistant.strip():
-            bad.append({"line": idx, "severity": "fatal", "reason": "empty_assistant", "sample_id": sample_id})
-
-        text = f"{user}\n{assistant}"
-
-        if contains_placeholder(text):
-            bad.append({"line": idx, "severity": "fatal", "reason": "placeholder_hit", "sample_id": sample_id})
-        if has_prompt_leak(assistant):
-            bad.append({"line": idx, "severity": "fatal", "reason": "prompt_leak", "sample_id": sample_id})
-        if has_reasoning_leak(assistant):
-            bad.append({"line": idx, "severity": "fatal", "reason": "reasoning_leak", "sample_id": sample_id})
-        if english_residual_terms(text):
-            bad.append({"line": idx, "severity": "warning", "reason": "english_residual", "sample_id": sample_id})
-
-        violations = confirmed_medical_violations(assistant)
-        for v in violations:
-            bad.append({"line": idx, "severity": "fatal", "reason": v, "sample_id": sample_id})
-
-        scene = (row.get("sub_scene") or row.get("scene") or
-                 (row.get("metadata") or {}).get("sub_scene") or
-                 (row.get("metadata") or {}).get("scene") or "")
-
-        if is_emergency_sample(user, scene):
-            if not has_escalation(assistant):
-                severity = "warning" if mode == "source_sample" else "fatal"
-                bad.append({"line": idx, "severity": severity,
-                            "reason": "emergency_missing_escalation", "sample_id": sample_id})
-
-        if is_medication_sample(user, scene):
-            if not has_medication_confirmation(assistant):
-                severity = "warning" if mode == "source_sample" else "fatal"
-                bad.append({"line": idx, "severity": severity,
-                            "reason": "medication_missing_doctor_or_pharmacist_confirmation",
-                            "sample_id": sample_id})
-
-        if len(assistant.strip()) < 30:
-            bad.append({"line": idx, "severity": "warning", "reason": "assistant_too_short", "sample_id": sample_id})
-
-        role_mismatch_markers = ["我怎么", "我该吃", "我应该", "要不要去"]
-        for marker in role_mismatch_markers:
-            if assistant.strip().startswith(marker):
-                bad.append({"line": idx, "severity": "fatal", "reason": "assistant_role_mismatch", "sample_id": sample_id})
-                break
-
-    for sid, count in ids.items():
-        if sid and count > 1:
-            bad.append({"line": "", "severity": "fatal", "reason": f"duplicate_id:{sid}", "sample_id": sid})
-
-    fatal = [r for r in bad if r["severity"] == "fatal"]
-    warning = [r for r in bad if r["severity"] == "warning"]
-    metrics = {
-        "input": str(path), "mode": mode, "total": len(rows),
-        "fatal_count": len(fatal), "warning_count": len(warning),
-        "pass": len(fatal) == 0,
-    }
     out_csv = path.with_name(path.stem + "_bad_cases.csv")
     write_csv(out_csv, bad, ["line", "sample_id", "severity", "reason"])
     return metrics

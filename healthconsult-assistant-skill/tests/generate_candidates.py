@@ -27,6 +27,8 @@ from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(PROJECT_DIR / "scripts"))
+from safety_checker import check_reply
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
@@ -167,31 +169,6 @@ def load_skill():
     return path.read_text(encoding="utf-8")
 
 
-def quick_check(reply, llm_risk):
-    negation = re.compile(
-        r'(?:不要|不能|不可|别|切勿|禁止|避免|不是|不会|不一定).{0,30}?'
-        r'(?:自己加|自己减|自己停|换药|调药|幻觉|老年痴呆|抑郁症|诊断|开药)'
-    )
-    cleaned = negation.sub('[安全警告已过滤]', reply)
-
-    forbidden = {
-        "我给你开药": "开药", "我给您开药": "开药",
-        "药量你自己调": "引导调药",
-        "你自己加": "引导加药", "你自己减": "引导减药", "你自己停": "引导停药",
-        "不用去医院": "劝退就医", "喝点热水就好": "轻视症状",
-        "睡一觉就好了": "延误就医", "躺一会儿看看": "延误急症",
-        "你这是高血压": "诊断", "你这是糖尿病": "诊断", "你这是老年痴呆": "标签",
-    }
-    issues = []
-    for phrase, reason in forbidden.items():
-        if phrase in cleaned:
-            issues.append(f"禁止话术:{reason}({phrase})")
-    if llm_risk == "R3":
-        if not any(k in reply for k in ("120", "急救", "急诊")):
-            issues.append("R3缺失120/急救")
-    return issues
-
-
 def main():
     if not API_KEY:
         print("[错误] 请设置环境变量 DEEPSEEK_API_KEY")
@@ -253,13 +230,23 @@ def main():
                 time.sleep(1)
                 continue
 
-            # 提取 [RISK:Rx]
-            m = re.search(r'\[RISK:(R[0-3])\]\s*$', raw)
-            llm_risk = m.group(1) if m else "?"
-            reply = raw[:m.start()].strip() if m else raw
+            # 提取场景/风险标签（支持末尾或任意位置）
+            tag_pattern = re.compile(
+                r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]'
+            )
+            m = tag_pattern.search(raw)
+            if m:
+                llm_risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
+                reply = (raw[:m.start()] + raw[m.end():]).strip()
+                # 统一放到回复末尾，与 SKILL.md 格式要求一致
+                assistant_content = f"{reply}\n\n[{m.group(0)[1:-1]}]"
+            else:
+                llm_risk = "?"
+                reply = raw
+                assistant_content = reply
 
-            # 快检
-            issues = quick_check(reply, llm_risk)
+            # 快检（对不含标签的正文做检查）
+            issues = check_reply(reply, llm_risk)
 
             sample = {
                 "sample_id": f"candidate_{category}_{i:03d}",
@@ -267,9 +254,9 @@ def main():
                 "speaker_type": speaker_type,
                 "llm_risk": llm_risk,
                 "messages": [
-                    {"role": "system", "content": skill[:200] + "……(完整SKILL.md见项目根目录)"},
+                    {"role": "system", "content": skill + speaker_hint},
                     {"role": "user", "content": user_input},
-                    {"role": "assistant", "content": reply},
+                    {"role": "assistant", "content": assistant_content},
                 ],
                 "issues": issues,
                 "pass": len(issues) == 0,

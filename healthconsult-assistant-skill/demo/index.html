@@ -32,9 +32,10 @@
 html { scroll-behavior:smooth; }
 body {
   font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  font-size: 17px;
   background: var(--bg);
   color: var(--text);
-  line-height: 1.7;
+  line-height: 1.8;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -43,40 +44,40 @@ nav {
   position: fixed; top:0; left:0; right:0; z-index:100;
   background: rgba(255,255,255,.82); backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
-  padding: 0 24px; height: 56px;
+  padding: 0 24px; height: 64px;
   display:flex; align-items:center; justify-content:space-between;
 }
-nav .logo { font-weight:700; font-size:17px; color:var(--warm); letter-spacing:-.5px; }
-nav .links { display:flex; gap:24px; }
+nav .logo { font-weight:700; font-size:20px; color:var(--warm); letter-spacing:-.5px; }
+nav .links { display:flex; gap:28px; }
 nav .links a {
-  text-decoration:none; color:var(--text-secondary); font-size:14px; font-weight:500;
+  text-decoration:none; color:var(--text-secondary); font-size:17px; font-weight:500;
   transition: color .2s;
 }
 nav .links a:hover { color:var(--text); }
 
 /* HERO */
 .hero {
-  padding: 120px 24px 80px; text-align:center; max-width:720px; margin:0 auto;
+  padding: 130px 24px 80px; text-align:center; max-width:760px; margin:0 auto;
 }
 .hero .badge {
   display:inline-block; background:var(--warm-light); color:var(--warm);
-  font-size:13px; font-weight:600; padding:4px 14px; border-radius:20px;
+  font-size:16px; font-weight:600; padding:6px 18px; border-radius:24px;
   margin-bottom:20px; letter-spacing:.5px;
 }
-.hero h1 { font-size:42px; font-weight:700; line-height:1.2; letter-spacing:-1px; margin-bottom:16px; }
+.hero h1 { font-size:48px; font-weight:700; line-height:1.2; letter-spacing:-1px; margin-bottom:16px; }
 .hero h1 span { color:var(--warm); }
-.hero p { font-size:17px; color:var(--text-secondary); max-width:500px; margin:0 auto 32px; line-height:1.8; }
-.hero .stats { display:flex; justify-content:center; gap:48px; }
+.hero p { font-size:20px; color:var(--text-secondary); max-width:540px; margin:0 auto 32px; line-height:1.8; }
+.hero .stats { display:flex; justify-content:center; gap:52px; }
 .hero .stats .stat { text-align:center; }
-.hero .stats .stat .num { font-size:32px; font-weight:700; color:var(--warm); }
-.hero .stats .stat .label { font-size:13px; color:var(--text-secondary); margin-top:2px; }
+.hero .stats .stat .num { font-size:38px; font-weight:700; color:var(--warm); }
+.hero .stats .stat .label { font-size:16px; color:var(--text-secondary); margin-top:4px; }
 
 /* SECTION */
 .section { max-width:1160px; margin:0 auto; padding:0 24px 80px; }
 .section-title {
-  font-size:26px; font-weight:700; letter-spacing:-.5px; margin-bottom:8px;
+  font-size:30px; font-weight:700; letter-spacing:-.5px; margin-bottom:8px;
 }
-.section-subtitle { font-size:15px; color:var(--text-secondary); margin-bottom:36px; }
+.section-subtitle { font-size:18px; color:var(--text-secondary); margin-bottom:36px; }
 
 /* PERSONALITY CARDS */
 .personality-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:20px; }
@@ -84,7 +85,7 @@ nav .links a:hover { color:var(--text); }
 @media (max-width:500px) { .personality-grid { grid-template-columns:1fr; } }
 
 .personality-card {
-  background:var(--card); border-radius:var(--radius); padding:28px 24px;
+  background:var(--card); border-radius:var(--radius); padding:28px 28px;
   border:1px solid var(--border); box-shadow:var(--shadow);
   transition: transform .25s, box-shadow .25s;
   cursor: default; position:relative; overflow:hidden;
@@ -99,27 +100,27 @@ nav .links a:hover { color:var(--text); }
 .pc-3::before { background:var(--mild); }
 .pc-4::before { background:var(--cool); }
 
-.pc-icon { font-size:36px; margin-bottom:12px; }
-.pc-name { font-size:19px; font-weight:700; margin-bottom:4px; letter-spacing:-.3px; }
-.pc-tagline { font-size:13px; color:var(--text-secondary); margin-bottom:16px; line-height:1.5; }
-.pc-trait { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:6px; color:var(--text-secondary); }
-.pc-trait .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.pc-icon { font-size:42px; margin-bottom:12px; }
+.pc-name { font-size:22px; font-weight:700; margin-bottom:4px; letter-spacing:-.3px; }
+.pc-tagline { font-size:16px; color:var(--text-secondary); margin-bottom:16px; line-height:1.6; }
+.pc-trait { display:flex; align-items:center; gap:10px; font-size:16px; margin-bottom:6px; color:var(--text-secondary); }
+.pc-trait .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .pc-1 .dot { background:var(--warm); }
 .pc-2 .dot { background:var(--hot); }
 .pc-3 .dot { background:var(--mild); }
 .pc-4 .dot { background:var(--cool); }
-.pc-score { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:baseline; }
-.pc-score .val { font-size:28px; font-weight:700; }
+.pc-score { margin-top:16px; padding-top:16px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:baseline; }
+.pc-score .val { font-size:34px; font-weight:700; }
 .pc-1 .pc-score .val { color:var(--warm); }
 .pc-2 .pc-score .val { color:var(--hot); }
 .pc-3 .pc-score .val { color:var(--mild); }
 .pc-4 .pc-score .val { color:var(--cool); }
-.pc-score .max { font-size:12px; color:var(--text-secondary); }
+.pc-score .max { font-size:16px; color:var(--text-secondary); }
 
 /* SCENARIO SECTION */
 .scenario-tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:28px; }
 .scenario-tab {
-  padding:8px 18px; border-radius:24px; font-size:13px; font-weight:500; cursor:pointer;
+  padding:10px 22px; border-radius:28px; font-size:17px; font-weight:500; cursor:pointer;
   border:1px solid var(--border); background:var(--card); color:var(--text-secondary);
   transition: all .2s; white-space:nowrap;
 }
@@ -131,7 +132,7 @@ nav .links a:hover { color:var(--text); }
 
 .scenario-header { margin-bottom:20px; }
 .scenario-header .risk {
-  display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600;
+  display:inline-block; padding:3px 12px; border-radius:14px; font-size:15px; font-weight:600;
   margin-right:8px;
 }
 .risk-r0 { background:#F0FDF4; color:#16A34A; }
@@ -139,12 +140,12 @@ nav .links a:hover { color:var(--text); }
 .risk-r2 { background:#FFF7ED; color:#EA580C; }
 .risk-r3 { background:#FFF1F2; color:#DC2626; }
 .scenario-header .user-msg {
-  font-size:16px; background:#F5F5F4; padding:16px 20px; border-radius:var(--radius-sm);
-  margin-top:12px; font-style:italic; position:relative; line-height:1.7;
+  font-size:20px; background:#F5F5F4; padding:18px 22px; border-radius:var(--radius-sm);
+  margin-top:12px; font-style:italic; position:relative; line-height:1.8;
 }
 .scenario-header .user-msg::before {
   content:'老人说'; position:absolute; top:-10px; left:16px;
-  font-size:11px; color:var(--text-secondary); background:var(--bg); padding:0 8px;
+  font-size:14px; color:var(--text-secondary); background:var(--bg); padding:0 8px;
   font-style:normal; font-weight:600;
 }
 
@@ -155,18 +156,18 @@ nav .links a:hover { color:var(--text); }
   background:var(--card); border-radius:var(--radius-sm); padding:20px;
   border:1px solid var(--border); position:relative;
 }
-.response-card .rc-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.response-card .rc-header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
 .response-card .rc-label {
-  font-size:12px; font-weight:700; padding:3px 10px; border-radius:14px;
+  font-size:15px; font-weight:700; padding:4px 12px; border-radius:16px;
 }
 .rc-label.label-1 { background:var(--warm-light); color:var(--warm); }
 .rc-label.label-2 { background:var(--hot-light); color:var(--hot); }
 .rc-label.label-3 { background:var(--mild-light); color:var(--mild); }
 .rc-label.label-4 { background:var(--cool-light); color:var(--cool); }
-.response-card .rc-stars { font-size:13px; margin-left:auto; }
-.response-card .rc-text { font-size:14px; line-height:1.8; color:var(--text); }
+.response-card .rc-stars { font-size:16px; margin-left:auto; }
+.response-card .rc-text { font-size:18px; line-height:1.9; color:var(--text); }
 .response-card .rc-verdict {
-  margin-top:12px; font-size:12px; color:var(--text-secondary); padding:6px 12px;
+  margin-top:12px; font-size:15px; color:var(--text-secondary); padding:8px 14px;
   background:var(--bg); border-radius:8px;
 }
 
@@ -178,22 +179,22 @@ nav .links a:hover { color:var(--text); }
   box-shadow:var(--shadow); border:1px solid var(--border);
 }
 .score-table thead th {
-  background:#FAFAF9; font-size:13px; font-weight:600; padding:14px 16px;
+  background:#FAFAF9; font-size:16px; font-weight:600; padding:14px 16px;
   text-align:center; border-bottom:1px solid var(--border);
 }
 .score-table thead th:first-child { text-align:left; }
 .score-table tbody td {
-  padding:12px 16px; font-size:14px; text-align:center;
+  padding:13px 16px; font-size:17px; text-align:center;
   border-bottom:1px solid var(--border); font-weight:500;
 }
 .score-table tbody td:first-child { text-align:left; font-weight:400; }
 .score-table tbody tr:last-child td { border-bottom:none; }
 .score-table tbody tr.total-row td {
-  font-weight:700; background:#FFF7ED; font-size:16px;
+  font-weight:700; background:#FFF7ED; font-size:19px;
 }
 .score-table tbody tr.best td:nth-child(2) { color:var(--warm); }
 .score-table tbody tr.best td { font-weight:600; }
-.cell-star { color:#F59E0B; font-size:15px; }
+.cell-star { color:#F59E0B; font-size:18px; }
 
 /* BAR CHART */
 .bar-chart { display:flex; gap:24px; align-items:flex-end; height:280px; padding:20px 0; }
@@ -202,15 +203,15 @@ nav .links a:hover { color:var(--text); }
   width:100%; max-width:140px; border-radius:12px 12px 0 0;
   transition: height .6s cubic-bezier(.4,0,.2,1);
   display:flex; align-items:flex-start; justify-content:center;
-  padding-top:14px; font-size:28px; font-weight:700; color:#fff;
+  padding-top:14px; font-size:34px; font-weight:700; color:#fff;
   position:relative;
 }
 .bar-1 { background:linear-gradient(180deg,var(--warm),#FB923C); }
 .bar-2 { background:linear-gradient(180deg,var(--hot),#FB7185); }
 .bar-3 { background:linear-gradient(180deg,var(--mild),#4ADE80); }
 .bar-4 { background:linear-gradient(180deg,var(--cool),#60A5FA); }
-.bar-col .bar-label { font-size:14px; font-weight:600; }
-.bar-col .bar-sub { font-size:11px; color:var(--text-secondary); }
+.bar-col .bar-label { font-size:17px; font-weight:600; }
+.bar-col .bar-sub { font-size:14px; color:var(--text-secondary); }
 
 /* RADAR AREA - simple CSS radar */
 .radar-wrap {
@@ -218,7 +219,7 @@ nav .links a:hover { color:var(--text); }
 }
 .radar-dim { display:flex; flex-direction:column; gap:16px; min-width:280px; }
 .radar-dim .dim-row { display:flex; align-items:center; gap:10px; }
-.radar-dim .dim-label { width:70px; font-size:13px; font-weight:500; text-align:right; flex-shrink:0; }
+.radar-dim .dim-label { width:80px; font-size:16px; font-weight:500; text-align:right; flex-shrink:0; }
 .radar-dim .dim-track {
   flex:1; height:10px; background:var(--border); border-radius:5px; overflow:hidden;
   display:flex;
@@ -235,11 +236,11 @@ nav .links a:hover { color:var(--text); }
   padding:36px 40px; border:1px solid #FED7AA; position:relative; overflow:hidden;
 }
 .conclusion-card::after {
-  content:'★'; position:absolute; right:32px; top:20px; font-size:80px; color:#FDBA74;
+  content:'★'; position:absolute; right:32px; top:20px; font-size:100px; color:#FDBA74;
   opacity:.15; transform:rotate(12deg);
 }
-.conclusion-card h3 { font-size:22px; font-weight:700; margin-bottom:12px; }
-.conclusion-card p { font-size:15px; line-height:1.8; color:var(--text-secondary); max-width:700px; }
+.conclusion-card h3 { font-size:26px; font-weight:700; margin-bottom:14px; }
+.conclusion-card p { font-size:18px; line-height:1.9; color:var(--text-secondary); max-width:720px; }
 .conclusion-card .highlight { color:var(--warm); font-weight:600; }
 
 /* ANIMATIONS */
@@ -247,17 +248,17 @@ nav .links a:hover { color:var(--text); }
 .fade-up.visible { opacity:1; transform:translateY(0); }
 
 footer {
-  text-align:center; padding:40px 24px; color:var(--text-secondary); font-size:13px;
+  text-align:center; padding:40px 24px; color:var(--text-secondary); font-size:16px;
   border-top:1px solid var(--border); margin-top:40px;
 }
 
 /* RESPONSIVE */
 @media (max-width:768px) {
-  .hero h1 { font-size:28px; }
+  .hero h1 { font-size:34px; }
   .hero .stats { gap:24px; flex-wrap:wrap; }
   .bar-chart { height:200px; }
   .conclusion-card { padding:24px; }
-  .section-title { font-size:22px; }
+  .section-title { font-size:26px; }
   .radar-wrap { gap:20px; }
 }
 </style>
@@ -376,7 +377,7 @@ footer {
     </div>
   </div>
 
-  <h3 style="margin:48px 0 16px; font-size:18px;">分场景得分明细</h3>
+  <h3 style="margin:48px 0 16px; font-size:22px;">分场景得分明细</h3>
   <div class="score-table-wrap">
     <table class="score-table">
       <thead>
@@ -457,7 +458,7 @@ footer {
     </table>
   </div>
 
-  <h3 style="margin:48px 0 16px; font-size:18px;">六维能力雷达</h3>
+  <h3 style="margin:48px 0 16px; font-size:22px;">六维能力雷达</h3>
   <div class="radar-wrap">
     <div class="radar-dim">
       <div class="dim-row"><span class="dim-label">安全边界</span><div class="dim-track"><div class="dim-fill dim-fill-warm" style="width:100%"></div></div></div>
@@ -467,8 +468,8 @@ footer {
       <div class="dim-row"><span class="dim-label">紧急响应</span><div class="dim-track"><div class="dim-fill dim-fill-warm" style="width:100%"></div></div></div>
       <div class="dim-row"><span class="dim-label">人格一致</span><div class="dim-track"><div class="dim-fill dim-fill-warm" style="width:95%"></div></div></div>
     </div>
-    <div style="text-align:center; color:var(--text-secondary); font-size:13px; line-height:1.8;">
-      <strong style="color:var(--warm); font-size:15px;">温婉邻居型 · 六维雷达</strong><br>
+    <div style="text-align:center; color:var(--text-secondary); font-size:16px; line-height:1.9;">
+      <strong style="color:var(--warm); font-size:18px;">温婉邻居型 · 六维雷达</strong><br>
       安全边界：严格不越界<br>
       情感温度：温暖有度不煽情<br>
       通俗易懂：用词在老人舒适区<br>
