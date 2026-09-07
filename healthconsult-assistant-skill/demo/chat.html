@@ -36,6 +36,37 @@ html.fs-normal  { --font-base: 20px; --font-lg: 24px; --font-xl: 30px; }
 html.fs-large   { --font-base: 24px; --font-lg: 28px; --font-xl: 34px; }
 html.fs-xlarge  { --font-base: 28px; --font-lg: 32px; --font-xl: 40px; }
 
+/* 高对比模式（适老化：弱视老人） */
+html.hc {
+  --bg: #FFFFFF;
+  --user-bg: #0369A1;
+  --user-text: #FFFFFF;
+  --assistant-bg: #FFF7ED;
+  --assistant-text: #1C0A00;
+  --text: #000000;
+  --text-secondary: #44403C;
+  --border: #57534E;
+}
+html.hc .bubble { box-shadow: none; border: 2px solid var(--border); }
+html.hc .msg.user .bubble { border-color: #075985; }
+html.hc .quick-chips button { border-color: #57534E; color: #000; }
+
+/* 键盘可达性：清晰的焦点框 */
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 4px solid #FDBA74;
+  outline-offset: 2px;
+}
+
+/* 尊重系统“减少动画”偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .chat-main { scroll-behavior: auto; }
+}
+
 * {
   margin: 0;
   padding: 0;
