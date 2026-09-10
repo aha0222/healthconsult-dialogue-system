@@ -7,9 +7,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: healthconsult-assistant-skill
     steps:
       - uses: actions/checkout@v4
 
@@ -18,10 +15,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -r tools/requirements.txt
 
-      - name: Unit tests (safety checker + redline cases)
-        run: python -m pytest tests/test_safety_checker.py -v
+      - name: Backend unit tests (safety checker + redline cases)
+        run: python -m pytest backend/tests/test_safety_checker.py -v
 
-      - name: Strict validation of cleaned dataset
-        run: python tests/validate_health_assistant_outputs.py --input examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft
+      - name: Strict validation of skill dataset
+        run: >-
+          python tools/validate_outputs.py
+          --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl
+          --mode generated_sft

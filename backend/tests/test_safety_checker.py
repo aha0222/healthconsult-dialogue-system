@@ -11,10 +11,12 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR.parent / "scripts"))
+SCRIPT_DIR = Path(__file__).resolve().parent      # backend/tests
+REPO_ROOT = SCRIPT_DIR.parent.parent               # 仓库根
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from safety_checker import (
+from backend.app.safety.safety_checker import (
     check_reply,
     clean_negations,
     validate_sample,

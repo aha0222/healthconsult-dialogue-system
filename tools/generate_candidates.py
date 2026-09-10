@@ -14,7 +14,7 @@
   合计: 110 条
 
 用法：
-  python tests/generate_candidates.py
+  python tools/generate_candidates.py
 """
 
 import json
@@ -26,9 +26,15 @@ from pathlib import Path
 from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(PROJECT_DIR / "scripts"))
-from safety_checker import check_reply
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _paths import REPO_ROOT, SKILL_MD, EXAMPLES_DIR
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.safety.safety_checker import check_reply
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
@@ -165,8 +171,7 @@ SEEDS = {
 
 
 def load_skill():
-    path = PROJECT_DIR / "SKILL.md"
-    return path.read_text(encoding="utf-8")
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 def main():
@@ -186,7 +191,7 @@ def main():
     stats = {"total": 0, "ok": 0, "fail": 0, "by_category": {}}
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = PROJECT_DIR / "examples" / f"generated_candidates_{ts}.jsonl"
+    out_path = EXAMPLES_DIR / f"generated_candidates_{ts}.jsonl"
 
     print("=" * 65)
     print("  小暖候选训练数据生成器")
@@ -286,7 +291,7 @@ def main():
 
     # 仅通过的结果
     passed = [r for r in all_results if r["pass"]]
-    pass_path = PROJECT_DIR / "examples" / f"generated_candidates_passed_{ts}.jsonl"
+    pass_path = EXAMPLES_DIR / f"generated_candidates_passed_{ts}.jsonl"
     with open(pass_path, "w", encoding="utf-8") as f:
         for r in passed:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")

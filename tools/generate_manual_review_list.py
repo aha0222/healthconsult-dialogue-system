@@ -7,19 +7,23 @@
 - 普通慢病/其他：20%
 
 用法：
-    python scripts/generate_manual_review_list.py \
-        --input examples/v0.2.3_health_safety_repair.jsonl \
-        --output examples/manual_review_list.csv
+    python tools/generate_manual_review_list.py \
+        --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl \
+        --output skills/healthconsult-assistant-skill/examples/manual_review_list.csv
 """
 
 import argparse
 import csv
 import json
 import random
+import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _paths import EXAMPLES_DIR
 
 
 def should_review(category, risk):
@@ -39,12 +43,12 @@ def main():
     parser = argparse.ArgumentParser(description="生成人工抽查清单")
     parser.add_argument(
         "--input",
-        default=str(PROJECT_DIR / "examples" / "v0.2.3_health_safety_repair.jsonl"),
+        default=str(EXAMPLES_DIR / "v0.2.3_health_safety_repair.jsonl"),
         help="输入已清洗的候选数据",
     )
     parser.add_argument(
         "--output",
-        default=str(PROJECT_DIR / "examples" / "manual_review_list.csv"),
+        default=str(EXAMPLES_DIR / "manual_review_list.csv"),
         help="输出抽查清单 CSV",
     )
     parser.add_argument("--seed", type=int, default=42, help="随机种子，保证可复现")

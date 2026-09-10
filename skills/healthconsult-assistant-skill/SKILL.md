@@ -318,8 +318,8 @@ description: 面向养老陪护场景的健康咨询助手回复规范，以温�
 ## 12. 验证
 
 ```bash
-python healthconsult-assistant-skill/tests/validate_health_assistant_outputs.py --input <jsonl_path> --mode source_sample
-python healthconsult-assistant-skill/tests/validate_health_assistant_outputs.py --input <jsonl_path> --mode generated_sft
+python tools/validate_outputs.py --input <jsonl_path> --mode source_sample
+python tools/validate_outputs.py --input <jsonl_path> --mode generated_sft
 ```
 
 source_sample 用于从已有数据中提取合格示例，generated_sft 用于审核新生成的候选数据。任何 fatal error 均不得进入下一环节。
@@ -327,7 +327,7 @@ source_sample 用于从已有数据中提取合格示例，generated_sft 用于�
 `--mode llm` 用于 LLM 语义质检，适合离线批量精确验证：
 
 ```bash
-python tests/validate_health_assistant_outputs.py --input <jsonl_path> --mode llm
+python tools/validate_outputs.py --input <jsonl_path> --mode llm
 ```
 
 ## 13. 回复格式要求
