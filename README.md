@@ -33,9 +33,9 @@
 | 路径 | 职责 | 状态 |
 |------|------|------|
 | `frontend/` | 网页界面（人格展示 + 在线对话 + TTS） | 可用 |
-| `backend/` | 对话系统后端：编排、安全检查、API | 骨架 |
+| `backend/` | 对话系统后端：编排、安全检查、HTTP API | 可用 |
 | `skills/healthconsult-assistant-skill/` | 小暖回复规范包（纯规范，零 Python） | 可用 |
-| `tools/` | 离线数据工具：生成、清洗、质检、人格对比 | 可用 |
+| `tools/` | 离线数据工具：生成、清洗、质检、人格对比、线上采样、风险评测 | 可用 |
 | `tests/results/` | 历史测试结果 | 可用 |
 | `docs/` | 系统架构与设计文档 | 可用 |
 | `.github/workflows/ci.yml` | 自动测试配置 | 可用 |
@@ -65,7 +65,7 @@
 # Windows
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r tools/requirements.txt
-.\.venv\Scripts\python.exe -m pytest backend/tests/test_safety_checker.py -v
+.\.venv\Scripts\python.exe -m pytest backend/tests -v
 ```
 
 ```bash
@@ -73,7 +73,7 @@ python -m venv .venv
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r tools/requirements.txt
-python -m pytest backend/tests/test_safety_checker.py -v
+python -m pytest backend/tests -v
 ```
 
 ### 质检 skill 数据
@@ -82,9 +82,25 @@ python -m pytest backend/tests/test_safety_checker.py -v
 .\.venv\Scripts\python.exe tools/validate_outputs.py --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft
 ```
 
-### 后端（骨架）
+### 后端（HTTP API）
 
-后端目前只有占位实现，尚未提供可运行的 API。目录与职责见 `backend/README.md`。
+后端把 `SKILL.md` 作为 system prompt 调用 LLM，解析场景标记并做安全兜底，供前端调用。支持 SSE 流式、SQLite 会话/审计持久化、API Key 鉴权、按 IP 限流与结构化日志。
+
+```powershell
+# Windows
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+Copy-Item .env.example .env    # 按需修改
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+```
+
+```bash
+# macOS / Linux
+pip install -r backend/requirements.txt
+cp .env.example .env           # 按需修改
+python -m uvicorn backend.app.main:app --reload --port 8000
+```
+
+接口与全部配置见 `backend/README.md`。
 
 ---
 
@@ -92,13 +108,17 @@ python -m pytest backend/tests/test_safety_checker.py -v
 
 | 我想…… | 命令 |
 |--------|------|
-| 跑后端单测 + 红线用例 | `python -m pytest backend/tests/test_safety_checker.py -v` |
+| 跑后端单测 + 红线用例 | `python -m pytest backend/tests -v` |
+| 启动后端 API | `python -m uvicorn backend.app.main:app --reload --port 8000` |
 | 严格质检训练候选集 | `python tools/validate_outputs.py --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft` |
 | 开发用命令行对话 | `python tools/chat.py --mode local`（或 `--mode api --api-key sk-xxx`） |
 | 清洗候选数据 | `python tools/clean_candidates.py --input <in.jsonl> --output <out.jsonl>` |
 | 生成候选数据 | `python tools/generate_candidates.py`（需要 API Key） |
 | 四版人格批量对比 | `python tools/batch_test_personalities.py`（需要 API Key） |
 | 生成人工抽查清单 | `python tools/generate_manual_review_list.py` |
+| 导出线上样本（脱敏） | `python tools/export_online_samples.py --output online.jsonl` |
+| 只导出高危/兜底样本 | `python tools/export_online_samples.py --output flagged.jsonl --only-flagged` |
+| 风险分级评测 | `python tools/eval_risk.py --mode local --min-accuracy 0.8` |
 
 > Windows 下把 `python` 换成 `.\.venv\Scripts\python.exe`。
 
