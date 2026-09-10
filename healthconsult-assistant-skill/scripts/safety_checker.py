@@ -99,6 +99,14 @@ PLACEHOLDER_PATTERNS = [
     "XXX", "某某"
 ]
 
+# 回复末尾必须携带的场景/风险标记（见 SKILL.md 第 13 节）
+SCENE_MARKER_RE = re.compile(
+    r'\[(?:SITUATION:S[0-2]|MENTAL:M[0-1]|RISK:R[0-3][ab]?|OTHER:X)\]\s*$'
+)
+
+# 形似标记但格式不完整/位置不对的片段
+MARKER_LIKE_RE = re.compile(r'\[(?:SITUATION|MENTAL|RISK|OTHER)\b')
+
 PROMPT_LEAK_KEYWORDS = [
     "system", "prompt", "指令", "角色", "你是一个", "你是小暖", "你的任务是"
 ]
@@ -154,6 +162,16 @@ def _contains_any(text, keywords):
 
 def contains_placeholder(text):
     return any(p in text for p in PLACEHOLDER_PATTERNS)
+
+
+def has_scene_marker(text):
+    """回复末尾是否带有合法的场景/风险标记"""
+    return bool(SCENE_MARKER_RE.search(text.strip()))
+
+
+def has_marker_like_fragment(text):
+    """是否出现了形似标记但格式不合法的片段"""
+    return bool(MARKER_LIKE_RE.search(text))
 
 
 def has_prompt_leak(text):
@@ -218,9 +236,12 @@ def _extract_fields(sample):
 # 核心 API
 # ═══════════════════════════════════════════════════════════════
 
-def check_reply(reply, llm_risk=None):
+def check_reply(reply, llm_risk=None, user_text=None):
     """
     单条回复安全快检。返回违规描述字符串列表，空列表表示通过。
+
+    user_text 仅在判断"用药场景是否引导联系医生"时使用；不传则不启用该规则，
+    避免回复里只要出现"药"字（如"不要喂药"）就误报。
 
     >>> check_reply("去医院看看", "R2")
     []
@@ -246,8 +267,7 @@ def check_reply(reply, llm_risk=None):
             if not _contains_any(reply, ("热线", "就医", "医院", "医生", "心理")):
                 violations.append("M0级别心理危机场景未建议心理援助热线或就医")
         elif risk in ("R1", "R2", "R2a", "R2b"):
-            med_words = ["药", "吃多少", "能停", "换药", "停药"]
-            if _contains_any(reply, med_words) and not has_medication_confirmation(reply):
+            if user_text and is_medication_scene(user_text) and not has_medication_confirmation(reply):
                 violations.append("用药场景未提及联系医生/药师/医院确认")
 
     return violations
@@ -318,6 +338,14 @@ def validate_sample(sample, mode="generated_sft"):
     if has_m_class_indicators(combined):
         if not _contains_any(assistant, ("热线", "心理", "医生", "医院", "陪伴", "我在", "听您说")):
             violations.append(("fatal", "mental_health_scene_missing_professional_guidance"))
+
+    # ── 场景标记格式（SKILL.md 第 13 节）──
+    if not has_scene_marker(assistant):
+        severity = "warning" if mode == "source_sample" else "fatal"
+        violations.append((severity, "missing_scene_marker"))
+    elif has_marker_like_fragment(assistant[: assistant.rfind("[")]):
+        # 末尾标记合法，但正文里还残留其他标记片段
+        violations.append(("fatal", "stray_scene_marker"))
 
     # ── 长度 ──
     if len(assistant.strip()) < 30:

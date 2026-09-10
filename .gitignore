@@ -1,0 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+env/
+**/.venv/
+**/venv/
+**/env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 临时工作目录（虚拟环境/缓存，不应入库）
+新建文件夹/
+
+# Environment variables / secrets
+.env
+*.key
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

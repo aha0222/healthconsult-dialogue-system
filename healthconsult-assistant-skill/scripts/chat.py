@@ -140,7 +140,7 @@ def api_mode(api_key, base_url, model, single_ask=None):
             reply = raw_reply
 
         # 安全自检
-        violations = check_reply(reply, llm_risk)
+        violations = check_reply(reply, llm_risk, user_input)
         if violations:
             print(f"\n[质检警告] {'; '.join(violations)}")
 
@@ -180,8 +180,8 @@ def main():
     parser = argparse.ArgumentParser(description="小暖健康陪护 - 对话脚本")
     parser.add_argument("--mode", choices=["local", "api"], default="local")
     parser.add_argument("--api-key", help="API Key")
-    parser.add_argument("--base-url", default="https://api.openai.com/v1", help="API Base URL")
-    parser.add_argument("--model", default="gpt-4o-mini", help="模型名称")
+    parser.add_argument("--base-url", default="https://api.deepseek.com/v1", help="API Base URL")
+    parser.add_argument("--model", default="deepseek-chat", help="模型名称")
     parser.add_argument("--ask", help="单次问答（api模式）")
     args = parser.parse_args()
 
