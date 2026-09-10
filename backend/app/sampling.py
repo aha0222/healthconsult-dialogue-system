@@ -11,6 +11,7 @@
 
 import re
 
+from .dialogue.markers import risk_to_marker
 from .storage import Database
 
 # --only-flagged 默认关注的高危等级
@@ -30,34 +31,6 @@ def redact(text: str) -> str:
     text = BANK_RE.sub("[银行卡]", text)
     text = PHONE_RE.sub("[手机号]", text)
     return text
-
-
-def _canonical_risk(risk: str) -> str:
-    """规范风险等级大小写：前缀大写，R2a/R2b 的 a/b 保持小写。"""
-    risk = risk.strip()
-    prefix = risk[0].upper()
-    rest = risk[1:]
-    if rest and rest[-1].lower() in ("a", "b"):
-        rest = rest[:-1] + rest[-1].lower()
-    return prefix + rest
-
-
-def risk_to_marker(risk) -> str:
-    """把风险等级还原为 skill 契约的场景标记。"""
-    raw = (risk or "").strip()
-    if not raw:
-        return ""
-    canonical = _canonical_risk(raw)
-    prefix = canonical[0]
-    if prefix == "S":
-        return f"[SITUATION:{canonical}]"
-    if prefix == "M":
-        return f"[MENTAL:{canonical}]"
-    if prefix == "R":
-        return f"[RISK:{canonical}]"
-    if canonical == "X":
-        return "[OTHER:X]"
-    return ""
 
 
 def audit_to_sample(record: dict, redact_text: bool = True) -> dict:

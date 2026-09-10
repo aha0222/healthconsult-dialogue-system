@@ -32,6 +32,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.safety.safety_checker import check_reply
+from backend.app.dialogue.markers import append_marker
 
 
 def load_skill():
@@ -177,7 +178,7 @@ def api_mode(api_key, base_url, model, single_ask=None):
         print(f"\n小暖说：\n{reply}")
 
         messages.append({"role": "user", "content": user_input})
-        messages.append({"role": "assistant", "content": reply})
+        messages.append({"role": "assistant", "content": append_marker(reply, risk)})
 
 
 # ── 主入口 ────────────────────────────────────────────

@@ -28,6 +28,7 @@ skill 是声明式的：它只规定「怎么答」，不包含任何可执行�
 另有 `POST /api/chat/stream` 提供 SSE 流式输出：先逐字推送 `delta`，最后推送 `done`（命中红线时 `done.reply` 为安全兜底话术，客户端覆盖显示）。
 会话与消息用 SQLite 持久化（`backend/app/storage.py`），带 `session_id` 时自动续接上下文。
 长会话由 `dialogue/memory.py` 维护滚动摘要与长期画像（schema v3），续接时注入 system prompt。
+续接时还会用 `markers.append_marker` 把历史助手回复的场景标记还原，避免模型模仿"无标记"格式而漏标。
 LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜底分级。
 
 ## 实现状态

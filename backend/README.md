@@ -109,6 +109,8 @@ python -m venv .venv
 
 二者以 schema v3 存在 `sessions` 表，续接会话时作为「历史摘要」「已知信息」注入 system prompt。摘要更新失败不阻断对话。当前画像按会话存储，跨会话复用需配合用户身份（见计划）。
 
+此外，续接时会用 `markers.append_marker` 为历史助手回复补回场景标记（库里存的是剥离后的正文），保证模型上下文格式一致，避免模型模仿"无标记"而漏标。
+
 ## 安全加固
 
 - **第二层（关键词快检）**：`safety/safety_checker.py`，覆盖开药/调药/劝退就医/轻视症状/贴标签等硬红线，命中即替换为 `orchestrator.SAFE_FALLBACKS` 的安全话术。

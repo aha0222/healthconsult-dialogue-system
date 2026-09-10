@@ -7,7 +7,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backend.app.dialogue.markers import infer_risk_local, parse_marker
+from backend.app.dialogue.markers import (
+    append_marker,
+    infer_risk_local,
+    parse_marker,
+    risk_to_marker,
+)
 
 
 def test_parse_marker_trailing():
@@ -51,3 +56,30 @@ def test_infer_risk_safety():
 
 def test_infer_risk_daily():
     assert infer_risk_local("今天天气不错") == "R0"
+
+
+def test_risk_to_marker():
+    assert risk_to_marker("R1") == "[RISK:R1]"
+    assert risk_to_marker("R2a") == "[RISK:R2a]"
+    assert risk_to_marker("R2b") == "[RISK:R2b]"
+    assert risk_to_marker("R2A") == "[RISK:R2a]"
+    assert risk_to_marker("s0") == "[SITUATION:S0]"
+    assert risk_to_marker("M0") == "[MENTAL:M0]"
+    assert risk_to_marker("X") == "[OTHER:X]"
+    assert risk_to_marker("") == ""
+    assert risk_to_marker(None) == ""
+
+
+def test_append_marker_adds_when_missing():
+    result = append_marker("您记下来带给医生看。", "R1")
+    assert result.endswith("[RISK:R1]")
+    assert parse_marker(result)[1] == "R1"
+
+
+def test_append_marker_does_not_duplicate():
+    existing = "您记下来带给医生看。[RISK:R1]"
+    assert append_marker(existing, "R1") == existing
+
+
+def test_append_marker_without_risk_is_noop():
+    assert append_marker("普通回复。", None) == "普通回复。"

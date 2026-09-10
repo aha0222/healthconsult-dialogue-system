@@ -13,6 +13,7 @@ import re
 from ..config import Settings, get_settings
 from ..storage import Database
 from .llm_client import LLMClient
+from .markers import append_marker
 
 logger = logging.getLogger("xiaonuan.memory")
 
@@ -130,10 +131,13 @@ class MemoryManager:
 
         summary = session.get("summary")
         profile = load_profile(session.get("profile"))
-        history = [
-            {"role": m["role"], "content": m["content"]}
-            for m in all_messages[-self.settings.max_history :]
-        ]
+        # 历史里的助手回复补回场景标记，避免模型模仿"无标记"格式而漏标
+        history = []
+        for m in all_messages[-self.settings.max_history :]:
+            content = m["content"]
+            if m["role"] == "assistant":
+                content = append_marker(content, m.get("risk"))
+            history.append({"role": m["role"], "content": content})
         return {
             "history": history,
             "memory_block": build_memory_block(summary, profile),
