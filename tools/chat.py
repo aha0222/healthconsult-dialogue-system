@@ -8,13 +8,13 @@
 
 用法：
   # 本地测试模式（预置场景，无需API）
-  python scripts/chat.py --mode local
+  python tools/chat.py --mode local
 
   # API 对话模式
-  python scripts/chat.py --mode api --api-key sk-xxx --model deepseek-chat --base-url https://api.deepseek.com/v1
+  python tools/chat.py --mode api --api-key sk-xxx --model deepseek-chat --base-url https://api.deepseek.com/v1
 
   # 单次问答
-  python scripts/chat.py --mode api --api-key sk-xxx --ask "我血压有点高，该加药吗"
+  python tools/chat.py --mode api --api-key sk-xxx --ask "我血压有点高，该加药吗"
 """
 
 import argparse
@@ -22,17 +22,23 @@ import re
 import sys
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent.parent  # scripts/ → 项目根目录
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-from safety_checker import check_reply
+from _paths import REPO_ROOT, SKILL_MD
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.safety.safety_checker import check_reply
 
 
 def load_skill():
-    skill_path = SCRIPT_DIR / "SKILL.md"
-    if not skill_path.exists():
+    if not SKILL_MD.exists():
         print("[错误] 找不到 SKILL.md")
         sys.exit(1)
-    return skill_path.read_text(encoding="utf-8")
+    return SKILL_MD.read_text(encoding="utf-8")
 
 
 # ── 本地测试模式（仅作快速预览，风险分级用正则参考） ──
@@ -82,7 +88,7 @@ def local_mode():
 
     print(f"\n{'=' * 60}")
     print("本地测试完成。API 对话模式：")
-    print("  python scripts/chat.py --mode api --api-key YOUR_KEY --model deepseek-chat --base-url https://api.deepseek.com/v1")
+    print("  python tools/chat.py --mode api --api-key YOUR_KEY --model deepseek-chat --base-url https://api.deepseek.com/v1")
     print(f"{'=' * 60}")
 
 

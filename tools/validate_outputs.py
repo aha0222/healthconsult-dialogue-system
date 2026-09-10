@@ -2,9 +2,9 @@
 小暖健康陪护回复自动质检脚本
 
 用法：
-    python validate_health_assistant_outputs.py --input <jsonl_path> --mode source_sample
-    python validate_health_assistant_outputs.py --input <jsonl_path> --mode generated_sft
-    python validate_health_assistant_outputs.py --input <jsonl_path> --mode llm
+    python tools/validate_outputs.py --input <jsonl_path> --mode source_sample
+    python tools/validate_outputs.py --input <jsonl_path> --mode generated_sft
+    python tools/validate_outputs.py --input <jsonl_path> --mode llm
 
 source_sample: 从已有数据中提取合格示例（关键词匹配，warning 宽松）
 generated_sft: 审核新生成的候选数据（关键词匹配，warning 视为 fatal）
@@ -19,8 +19,16 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from safety_checker import (
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _paths import REPO_ROOT
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.safety.safety_checker import (
     batch_validate,
     check_reply,
     clean_negations,

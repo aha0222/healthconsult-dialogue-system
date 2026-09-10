@@ -3,7 +3,7 @@
 使用 DeepSeek API 对 9 个场景跑 4 版人格，生成对比报告。
 
 用法：
-  python batch_test_personalities.py
+  python tools/batch_test_personalities.py
 """
 
 import json
@@ -14,10 +14,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent  # tests/
-sys.path.insert(0, str(SCRIPT_DIR.parent / "scripts"))
-from safety_checker import check_reply
-RESULTS_DIR = SCRIPT_DIR / "results"
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _paths import REPO_ROOT, SKILL_MD, RESULTS_DIR
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.safety.safety_checker import check_reply
 
 # API 配置：优先从环境变量读取，否则在此填入
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -26,7 +32,7 @@ MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
 # ── 加载 SKILL.md 作为基础安全规范 ────────────────────
 
-SKILL_PATH = SCRIPT_DIR.parent / "SKILL.md"
+SKILL_PATH = SKILL_MD
 if not SKILL_PATH.exists():
     print(f"[错误] 找不到 SKILL.md: {SKILL_PATH}")
     sys.exit(1)

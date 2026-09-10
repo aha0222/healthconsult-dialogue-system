@@ -8,9 +8,9 @@
 4. 仅保留无 fatal 的样本
 
 用法：
-    python scripts/clean_candidates.py \
-        --input examples/generated_candidates_20260719_174148.jsonl \
-        --output examples/v0.2.3_health_safety_repair.jsonl
+    python tools/clean_candidates.py \
+        --input skills/healthconsult-assistant-skill/examples/generated_candidates_20260719_174148.jsonl \
+        --output skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl
 """
 
 import argparse
@@ -20,12 +20,17 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(SCRIPT_DIR))
-from safety_checker import validate_sample
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-SKILL_PATH = PROJECT_DIR / "SKILL.md"
-SKILL_TEXT = SKILL_PATH.read_text(encoding="utf-8")
+from _paths import REPO_ROOT, SKILL_MD, EXAMPLES_DIR
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.safety.safety_checker import validate_sample
+
+SKILL_TEXT = SKILL_MD.read_text(encoding="utf-8")
 
 TAG_RE = re.compile(
     r"\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]"
@@ -107,7 +112,7 @@ def main():
     parser.add_argument("--input", required=True, help="输入 candidates JSONL 路径")
     parser.add_argument(
         "--output",
-        default=str(PROJECT_DIR / "examples" / "v0.2.3_health_safety_repair.jsonl"),
+        default=str(EXAMPLES_DIR / "v0.2.3_health_safety_repair.jsonl"),
         help="输出清洗后 JSONL 路径",
     )
     args = parser.parse_args()

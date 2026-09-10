@@ -2,10 +2,11 @@
 小暖健康陪护 - 统一安全检查模块
 
 供所有入口复用：
-  scripts/chat.py
-  tests/validate_health_assistant_outputs.py
-  tests/batch_test_personalities.py
-  tests/generate_candidates.py
+  backend/app/...        运行时对话链路
+  tools/chat.py
+  tools/validate_outputs.py
+  tools/batch_test_personalities.py
+  tools/generate_candidates.py
 
 提供:
   check_reply(reply, llm_risk=None)       单条回复快检 → [违规字符串]
