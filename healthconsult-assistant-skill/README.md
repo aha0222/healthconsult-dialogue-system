@@ -6,7 +6,7 @@
 
 ---
 
-## 这是什么？用大白话讲
+## 项目定位
 
 想象一个放在养老机器人或手机 App 里的 AI 助手，老人对它说：
 
@@ -135,7 +135,7 @@ macOS / Linux 用 `python scripts/chat.py --mode local`。
 
 ---
 
-## 目录里都是什么
+## 目录结构
 
 | 路径 | 作用 | 想改什么来这里 |
 |------|------|----------------|
@@ -149,7 +149,7 @@ macOS / Linux 用 `python scripts/chat.py --mode local`。
 | `requirements.txt` | Python 依赖清单 | 加依赖 |
 | `.github/workflows/ci.yml` | 自动测试配置 | 一般不用动 |
 
-**文档从哪看起？**
+**推荐阅读顺序**
 - 想懂设计 → `SKILL.md`（最重要）
 - 想看对比数据 → `docs/personality_test_report.md`
 - 想看反面教材 → `examples/bad_health_assistant_examples.md`
@@ -172,7 +172,7 @@ macOS / Linux 用 `python scripts/chat.py --mode local`。
 
 ---
 
-## 数据质检是怎么判的？
+## 数据质检规则
 
 质检脚本有三种模式，差别在于**严格程度**：
 
@@ -196,7 +196,7 @@ macOS / Linux 用 `python scripts/chat.py --mode local`。
 
 ---
 
-## 遇到问题怎么办
+## 常见问题排查
 
 **`python` 不是内部或外部命令**
 没装 Python，或没加进 PATH。去 python.org 下载安装，安装时勾选 "Add Python to PATH"。
@@ -218,7 +218,7 @@ Windows 可先执行 `chcp 65001` 切到 UTF-8；文件本身都是 UTF-8 编码
 
 ---
 
-## 想改内容，从哪下手？
+## 修改指南
 
 | 你的目标 | 改哪里 |
 |----------|--------|
