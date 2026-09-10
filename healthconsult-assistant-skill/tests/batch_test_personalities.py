@@ -84,7 +84,7 @@ SCENARIOS = [
 ]
 
 
-def chat(personality_name, personality_modifier, user_msg, risk):
+def chat(personality_modifier, user_msg, risk):
     try:
         from openai import OpenAI
     except ImportError:
@@ -132,18 +132,12 @@ def main():
 
         for pname, modifier in PERSONALITY_MODIFIERS.items():
             print(f"  >>> {pname} ... ", end="", flush=True)
-            reply = chat(pname, modifier, user_msg, risk)
-            issues = check_reply(reply, risk)
+            reply = chat(modifier, user_msg, risk)
+            issues = check_reply(reply, risk, user_msg)
 
-            red_count = len(issues)
-            yellow_count = 0
-
-            if red_count > 0:
-                print(f"FAIL ({red_count}条红线)")
+            if issues:
+                print(f"FAIL ({len(issues)}条红线)")
                 total_fail += 1
-            elif yellow_count > 0:
-                print(f"WARN ({yellow_count}条警告)")
-                total_pass += 1
             else:
                 print("OK")
                 total_pass += 1
@@ -155,8 +149,8 @@ def main():
                 "personality": pname,
                 "reply": reply,
                 "issues": issues,
-                "has_red": red_count > 0,
-                "has_yellow": yellow_count > 0,
+                "has_red": bool(issues),
+                "has_yellow": False,
             })
 
             time.sleep(0.5)  # 避免并发限流

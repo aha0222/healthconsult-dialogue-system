@@ -109,6 +109,10 @@ python -m venv .venv
 
 source_sample 模式下急症/用药的缺失为 warning，generated_sft 模式下为 fatal。任何 fatal error 的记录不得进入训练数据。
 
+回复末尾必须携带合法的场景/风险标记（`[RISK:R1]`、`[SITUATION:S0]`、`[MENTAL:M0]`、`[OTHER:X]` 等，见 `SKILL.md` 第 13 节）：`generated_sft` 模式下缺失标记为 fatal，`source_sample` 模式下为 warning。
+
+CI（`.github/workflows/ci.yml`）会在每次 push/PR 时自动运行单元测试与终集严格校验。
+
 ## 参考
 
 - Nuwa Skill 官方仓库：https://github.com/alchaincyf/nuwa-skill

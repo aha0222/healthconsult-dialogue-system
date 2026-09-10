@@ -26,6 +26,10 @@ Thumbs.db
 
 # Temporary outputs (keep committed examples, ignore future generated artifacts)
 examples/generated_candidates_*.jsonl
-examples/generated_candidates_*_bad_cases.csv
+examples/*_bad_cases.csv
+tests/*_bad_cases.csv
 tests/results/batch_results_*.json
 tests/results/batch_report_*.md
+
+# pytest cache
+.pytest_cache/

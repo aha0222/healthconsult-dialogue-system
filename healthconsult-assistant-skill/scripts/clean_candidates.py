@@ -46,10 +46,27 @@ SPEAKER_HINTS = {
 }
 
 
+def marker_for(risk):
+    """把风险等级转换为末尾标记体，未知等级返回 None"""
+    risk = (risk or "").strip()
+    if risk.startswith("S"):
+        return f"SITUATION:{risk}"
+    if risk.startswith("M"):
+        return f"MENTAL:{risk}"
+    if risk.startswith("R"):
+        return f"RISK:{risk}"
+    if risk == "X":
+        return "OTHER:X"
+    return None
+
+
 def normalize_assistant(assistant_text, fallback_risk="?"):
-    """提取标签并移到末尾，返回 (正文, 风险等级)"""
+    """提取标签并移到末尾；正文无标签时用 fallback_risk 补一个，返回 (正文, 风险等级)"""
     m = TAG_RE.search(assistant_text)
     if not m:
+        marker = marker_for(fallback_risk)
+        if marker:
+            return f"{assistant_text.strip()}\n\n[{marker}]", fallback_risk
         return assistant_text, fallback_risk
     tag_body = m.group(0)[1:-1]  # 去掉首尾 []
     risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)

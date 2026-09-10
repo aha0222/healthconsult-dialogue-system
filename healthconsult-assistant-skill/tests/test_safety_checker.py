@@ -103,6 +103,51 @@ def test_extract_fields_from_various_formats():
     assert _extract_fields(sample3) == ("", "u3", "a3", "", "")
 
 
+def test_scene_marker_missing_is_fatal_in_generated():
+    """generated_sft 模式下缺少末尾场景标记必须报 fatal"""
+    sample = {
+        "sample_id": "marker_missing_generated",
+        "user": "你好",
+        "assistant": "您好，请按时服药，有不适及时就医。",
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert any(sev == "fatal" and reason == "missing_scene_marker" for sev, reason in violations)
+
+
+def test_scene_marker_missing_is_warning_in_source():
+    """source_sample 模式下缺少末尾场景标记只报 warning"""
+    sample = {
+        "sample_id": "marker_missing_source",
+        "user": "你好",
+        "assistant": "您好，请按时服药，有不适及时就医。",
+    }
+    _, violations = validate_sample(sample, mode="source_sample")
+    assert any(sev == "warning" and reason == "missing_scene_marker" for sev, reason in violations)
+    assert not any(sev == "fatal" for sev, reason in violations)
+
+
+def test_valid_scene_marker_passes():
+    """带合法末尾场景标记的回复不应报缺失"""
+    sample = {
+        "sample_id": "marker_valid",
+        "user": "血压有点高",
+        "assistant": "您固定早晚各量一次，把数值记下来带给医生看。[RISK:R1]",
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert not any(reason == "missing_scene_marker" for _, reason in violations)
+
+
+def test_stray_scene_marker_detected():
+    """正文中残留标记片段必须报 fatal"""
+    sample = {
+        "sample_id": "marker_stray",
+        "user": "你好",
+        "assistant": "前面说了 [RISK:R1] 后面还有话。\n[RISK:R0]",
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert any(reason == "stray_scene_marker" for _, reason in violations)
+
+
 def test_placeholder_detection():
     """占位符必须报 fatal"""
     sample = {
