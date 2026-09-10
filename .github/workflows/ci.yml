@@ -20,8 +20,11 @@ jobs:
           python -m pip install -r backend/requirements.txt
           python -m pip install -r tools/requirements.txt
 
-      - name: Backend unit tests (safety checker + redline cases)
-        run: python -m pytest backend/tests/test_safety_checker.py -v
+      - name: Backend tests (safety checker + orchestrator + API + redline cases)
+        run: python -m pytest backend/tests -v
+
+      - name: Risk classification baseline
+        run: python tools/eval_risk.py --mode local --min-accuracy 0.8
 
       - name: Strict validation of skill dataset
         run: >-

@@ -689,6 +689,63 @@ button {
   border-color: var(--warm);
 }
 
+/* 会话列表 */
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #FAFAF9;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.session-item:active,
+.session-item.active {
+  border-color: var(--warm);
+  background: var(--warm-light);
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-title {
+  font-size: var(--font-base);
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-sub {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.session-del {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--border);
+  color: #B91C1C;
+  font-size: 22px;
+}
+
+.session-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 40px 10px;
+  font-size: var(--font-base);
+}
+
 /* 小屏适配 */
 @media (max-width: 480px) {
   .header {
@@ -723,7 +780,11 @@ button {
         <div class="header-status" id="statusText">健康陪护助手 · 温婉邻居型</div>
       </div>
     </div>
-    <button class="icon-btn" onclick="toggleSettings()" aria-label="设置">⚙️</button>
+    <div style="display:flex; gap:10px;">
+      <button class="icon-btn" onclick="openHistory()" aria-label="历史对话">📋</button>
+      <button class="icon-btn" onclick="newConversation()" aria-label="新对话">🆕</button>
+      <button class="icon-btn" onclick="toggleSettings()" aria-label="设置">⚙️</button>
+    </div>
   </header>
 
   <!-- 聊天区 -->
@@ -779,14 +840,11 @@ button {
         <option value="从容守护型">从容守护型（结构化）</option>
       </select>
 
-      <label>API 地址</label>
-      <input type="text" id="apiBaseUrl" value="https://api.deepseek.com/v1">
+      <label>后端地址</label>
+      <input type="text" id="backendUrl" value="http://127.0.0.1:8000">
 
-      <label>API Key</label>
-      <input type="password" id="apiKey" placeholder="输入 API Key（仅保存在本浏览器）">
-
-      <label>模型</label>
-      <input type="text" id="modelName" value="deepseek-chat">
+      <label>访问密钥（后端开启鉴权时填写）</label>
+      <input type="password" id="backendApiKey" placeholder="X-API-Key，可留空">
 
       <div class="toggle-row">
         <input type="checkbox" id="autoTts">
@@ -803,7 +861,8 @@ button {
       </div>
 
       <p class="settings-note">
-        API Key 仅保存在本浏览器 localStorage 中，不会上传到服务器。语音输入需要浏览器支持语音识别。
+        对话由后端（backend/）处理，大模型 API Key 保存在服务器环境变量中，浏览器不接触。
+        若后端设置了 BACKEND_API_KEY，请在上面填写访问密钥。语音输入需要浏览器支持语音识别。
       </p>
     </div>
     <div class="modal-footer">
@@ -813,49 +872,27 @@ button {
   </div>
 </div>
 
+<!-- 历史对话弹窗 -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>历史对话</h2>
+      <button onclick="closeHistory()" aria-label="关闭">✕</button>
+    </div>
+    <div class="modal-body" id="sessionList">
+      <div class="session-empty">加载中…</div>
+    </div>
+    <div class="modal-footer">
+      <button class="primary" onclick="closeHistory()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
-// System Prompt（精简版，保留核心安全边界与分级策略）
+// 说明：System Prompt 与安全检查由后端（backend/）负责，
+// 前端只负责呈现，并把「回复正文 + 风险等级 + 质检提示」展示出来。
 // ═══════════════════════════════════════════════════════════════
-const SKILL_BASE = `你是一位温和、耐心、尊重、可靠的老年陪护伙伴，名叫小暖。
-你像住在隔壁的懂事晚辈——有温度但不煽情，有分寸但不疏离。
-
-【说话风格】温婉、端庄、有分寸。先安抚→再解释→再建议→再兜底。
-常用词：您 | 咱们 | 慢慢地 | 别着急 | 我帮您记着。
-称呼：默认统一用"您"。只有用户明确是老人本人且能判性别时才用"阿姨""叔叔"。
-家属场景（"我妈""我爸"）称呼用户"您"，称呼老人"老人家"。
-绝对不用"奶奶""爷爷""老太太""老头"。
-
-【场景分类与优先级】S类 > M0 > R3 > R2b > R2a > M1 > R1 > R0 > X
-
-S0 人身安全紧急：敲门求救/尾随/入室/暴力威胁/诈骗进行中 → 不建议开门/外出，立即110，锁门窗，大声告知已报警，安抚等待。
-S1 环境安全紧急：起火/煤气/浓烟/漏水漏电 → 119/燃气公司，能撤离走楼梯不乘电梯，不能撤离关门窗堵缝等待。
-S2 诈骗/财产风险：中奖/冒充公检法/保健品会销/可疑链接 → 不转账不扫码不透露信息，联系子女，必要时110。
-
-M0 心理危机："不想活了""活着没意思""想死" → 直接关切不回避，倾听不评判，建议拨打心理援助热线 400-161-9995，建议家人陪同就医。禁止"想开点""多出去走走"。
-M1 严重情绪困扰：持续悲伤/焦虑失眠/孤独感 → 共情+去病耻感，建议社区心理科，不贴"抑郁症"标签。
-
-R3 急症高危：胸痛+后背痛、卒中信号、严重低血糖、意识不清、大出血 → 直接120 + 清晰指令 + 陪伴安抚 + 记录准备。禁止"先吃药观察""躺一会儿看看"。
-R2b 紧急就医：咳血/便血/黑便、摔倒不能站、发热3天不退、视力突然下降 → 今天/明天必须去，不自行处理，具体科室指引。
-R2a 一般就医：异常感知、想换药/停药、慢性病失控、持续两周以上失眠 → 建议安排就诊，记录症状带去看医生。
-R1 指标波动/中度不适：血压血糖波动、用药时间记混、睡眠差、便秘、头晕 → 安抚→通俗解释→非药物建议→记录提醒→联系医生/药师兜底。
-R0 日常健康/情感陪伴：养生饮食、天气活动、怀念亲人、孤独感 → 共情→通俗解释→轻松建议→就医兜底。
-
-X 非陪护话题：手机/股票/菜谱/新闻 → 友好回应但说明能力边界，不强行关联健康；涉及诈骗升级到S2。
-
-【绝对禁止】不诊断、不开药、不给剂量、不调药、不替代医生判断、不劝退就医、不轻视症状、不贴疾病标签、S类不怂恿开门/外出、M0不说"想开点"。
-
-【回复末尾】必须添加场景/风险标记：
-[SITUATION:S0/S1/S2]、[MENTAL:M0/M1]、[RISK:R3/R2b/R2a/R1/R0]、[OTHER:X]
-不要输出其他前缀、解释或元数据。`;
-
-const PERSONALITY_OVERLAYS = {
-  "温婉邻居型": "",
-  "贴心闺女型": `\n\n【人格覆盖-贴心闺女型】切换为亲切软糯风格。短句为主口语化。称呼：咱/您呀/您老人家。多用反问句"您说是不是嘛"。`,
-  "素朴家常型": `\n\n【人格覆盖-素朴家常型】切换为朴素接地气风格。用生活类比解释。称呼：老哥/老姐。不用叠词不撒娇。短句口语化，北方话味道。`,
-  "从容守护型": `\n\n【人格覆盖-从容守护型】切换为淡定从容风格。结构化：第一/第二/第三。称呼：您，不加修饰。不用叠词语气词。`
-};
-
 const PERSONALITY_DESCS = {
   "温婉邻居型": "温婉端庄，先安抚再建议",
   "贴心闺女型": "亲切软糯，情感模式",
@@ -871,9 +908,8 @@ let autoTtsEnabled = false;
 let currentFontSize = "normal";
 let isGenerating = false;
 let isListening = false;
-let messages = [
-  { role: "system", content: SKILL_BASE + PERSONALITY_OVERLAYS[currentPersonality] }
-];
+let messages = [];
+let sessionId = null;
 
 const synth = window.speechSynthesis;
 let zhVoice = null;
@@ -890,13 +926,11 @@ let recognition = null;
   initSpeechRecognition();
 
   const saved = JSON.parse(localStorage.getItem('xiaonuan_settings') || '{}');
-  if (saved.apiKey) document.getElementById('apiKey').value = saved.apiKey;
-  if (saved.apiBaseUrl) document.getElementById('apiBaseUrl').value = saved.apiBaseUrl;
-  if (saved.modelName) document.getElementById('modelName').value = saved.modelName;
+  if (saved.backendUrl) document.getElementById('backendUrl').value = saved.backendUrl;
+  if (saved.backendApiKey) document.getElementById('backendApiKey').value = saved.backendApiKey;
   if (saved.personality) {
     document.getElementById('personalitySelect').value = saved.personality;
     currentPersonality = saved.personality;
-    messages[0] = { role: "system", content: SKILL_BASE + PERSONALITY_OVERLAYS[currentPersonality] };
   }
   if (saved.autoTts) {
     autoTtsEnabled = saved.autoTts;
@@ -909,14 +943,9 @@ let recognition = null;
 })();
 
 function updateStatus() {
-  const key = document.getElementById('apiKey').value.trim();
   const status = document.getElementById('statusText');
   const desc = PERSONALITY_DESCS[currentPersonality] || '';
-  if (!key) {
-    status.textContent = `${currentPersonality} · ${desc} · 请先配置 API Key`;
-  } else {
-    status.textContent = `${currentPersonality} · ${desc}`;
-  }
+  status.textContent = `${currentPersonality} · ${desc}`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1048,18 +1077,16 @@ function toggleSettings() {
 
 function saveSettings() {
   const personality = document.getElementById('personalitySelect').value;
-  const apiKey = document.getElementById('apiKey').value.trim();
-  const apiBaseUrl = document.getElementById('apiBaseUrl').value.trim();
-  const modelName = document.getElementById('modelName').value.trim();
+  const backendUrl = document.getElementById('backendUrl').value.trim();
+  const backendApiKey = document.getElementById('backendApiKey').value.trim();
   const autoTts = document.getElementById('autoTts').checked;
 
   localStorage.setItem('xiaonuan_settings', JSON.stringify({
-    apiKey, apiBaseUrl, modelName, personality, autoTts, fontSize: currentFontSize
+    backendUrl, backendApiKey, personality, autoTts, fontSize: currentFontSize
   }));
 
   if (personality !== currentPersonality) {
     currentPersonality = personality;
-    messages[0] = { role: "system", content: SKILL_BASE + PERSONALITY_OVERLAYS[personality] };
     showSystemMsg(`已切换为「${personality}」`);
   }
   autoTtsEnabled = autoTts;
@@ -1072,6 +1099,13 @@ function quickAsk(text) {
   input.value = text;
   autoResize(input);
   sendMessage();
+}
+
+function authHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  const key = document.getElementById('backendApiKey').value.trim();
+  if (key) headers['X-API-Key'] = key;
+  return headers;
 }
 
 function showSystemMsg(text) {
@@ -1110,7 +1144,7 @@ const RISK_LABEL_MAP = {
   "X":"非健康"
 };
 
-function addMessage(role, content, risk) {
+function addMessage(role, content, risk, silent = false) {
   const welcome = document.getElementById('welcome');
   if (welcome) welcome.style.display = 'none';
 
@@ -1139,71 +1173,197 @@ function addMessage(role, content, risk) {
   container.appendChild(msgDiv);
 
   if (role === 'assistant') {
-    msgDiv.querySelector('.tts-btn').addEventListener('click', () => speak(content));
-    if (autoTtsEnabled) speak(content);
+    const ttsBtn = msgDiv.querySelector('.tts-btn');
+    ttsBtn.addEventListener('click', () => speak(msgDiv.querySelector('.bubble').textContent));
+    if (autoTtsEnabled && content && !silent) speak(content);
   }
 
   scrollToBottom();
   return msgDiv;
 }
 
-function setTyping(show) {
-  document.getElementById('typing').style.display = show ? 'flex' : 'none';
-  document.getElementById('sendBtn').disabled = show;
+function setBubbleText(msgDiv, text) {
+  msgDiv.querySelector('.bubble').textContent = text;
+  scrollToBottom();
+}
+
+function updateMessageRisk(msgDiv, risk) {
+  const meta = msgDiv.querySelector('.msg-meta');
+  const existing = meta.querySelector('.risk-badge');
+  if (existing) existing.remove();
+  const label = RISK_LABEL_MAP[risk] || risk || '';
+  if (!label) return;
+  const cssClass = RISK_CLASS_MAP[risk] || 'R0';
+  const span = document.createElement('span');
+  span.className = `risk-badge risk-${cssClass}`;
+  span.textContent = label;
+  const ttsBtn = meta.querySelector('.tts-btn');
+  meta.insertBefore(span, ttsBtn || null);
+}
+
+function showQualityWarning(msgDiv, issues) {
+  if (!issues || issues.length === 0) return;
+  const warn = document.createElement('div');
+  warn.className = 'quality-warning';
+  warn.textContent = '⚠️ 质检提示：' + issues.join(' | ');
+  msgDiv.querySelector('.msg-body').appendChild(warn);
+}
+
+function newConversation() {
+  if (isGenerating) return;
+  sessionId = null;
+  messages = [];
+  document.getElementById('messages').innerHTML = '';
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.style.display = '';
+  showSystemMsg('已开始新对话');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 安全快检（关键词 + 否定句式过滤）
+// 历史对话（会话列表 + 历史回看）
 // ═══════════════════════════════════════════════════════════════
-function quickCheck(reply, llmRisk) {
-  const cleaned = reply.replace(
-    /(?:不要|不能|不可|别|切勿|禁止|避免|不是|不会|不一定).{0,30}?(?:自己加|自己减|自己停|换药|调药|幻觉|老年痴呆|抑郁症|诊断|开药|躺一会儿看看|观察观察|喝点热水|睡一觉|不用去医院|没必要看医生|先吃药看看|捂一捂|烫烫脚|自己吃|乱吃|停掉试试|停几天看看)/g,
-    '[安全警告已过滤]'
-  );
+function backendBase() {
+  return document.getElementById('backendUrl').value.trim().replace(/\/+$/, '');
+}
 
-  const forbidden = {
-    "我给你开药":"开药","我给您开药":"开药",
-    "药量你自己调":"引导调药",
-    "你自己加":"引导加药","你自己减":"引导减药","你自己停":"引导停药",
-    "停掉试试":"引导停药","停几天看看":"引导停药","先不吃看看":"引导停药",
-    "不用去医院":"劝退就医","没必要看医生":"劝退就医",
-    "喝点热水就好":"轻视症状","多喝热水":"轻视症状","喝杯热水":"轻视症状",
-    "睡一觉就好了":"延误就医",
-    "躺一会儿看看":"延误急症","你先观察观察":"延误急症",
-    "先吃药看看":"急症延误-建议吃药观察","先吃片药观察":"急症延误-建议吃药观察","先吃片阿司匹林看看":"急症延误-建议吃药观察",
-    "你这是高血压":"诊断","你的症状是典型的高血压":"诊断","你这是糖尿病":"诊断","你这是抑郁症":"诊断",
-    "你这是老年痴呆":"标签","你这是普通感冒":"诊断",
-    "你就是幻觉":"否定感知","你就是太累了":"否定感知",
-    "老糊涂":"不尊重用语","脑子退化":"不尊重用语",
-    "想开点就好了":"心理危机-轻描淡写","多出去走走就好了":"心理危机-轻描淡写",
-    "开门看看":"人身安全-怂恿开门","出去帮一下":"人身安全-怂恿外出",
-    "开开门吧":"人身安全-怂恿开门","帮帮她":"人身安全-危及自身",
-    "吃硝苯地平":"开药","吃一片阿司匹林":"开药",
-    "烫烫脚":"烫伤风险/轻视症状","捂一捂":"轻视症状"
-  };
+function formatTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
-  const issues = [];
-  for (const [phrase, reason] of Object.entries(forbidden)) {
-    if (cleaned.includes(phrase)) issues.push(`[红线] ${reason}: "${phrase}"`);
-  }
+async function openHistory() {
+  const list = document.getElementById('sessionList');
+  document.getElementById('historyModal').classList.add('show');
 
-  if (llmRisk === 'R3' || llmRisk === 'S0') {
-    if (!reply.includes('110') && !reply.includes('120') && !reply.includes('急救') && !reply.includes('急诊') && !reply.includes('报警')) {
-      issues.push(`[红线] ${llmRisk}级别但缺失110/120/急救/急诊/报警`);
-    }
+  const base = backendBase();
+  if (!base) {
+    list.innerHTML = '<div class="session-empty">请先在设置里配置后端地址</div>';
+    return;
   }
-  if (llmRisk === 'S1') {
-    if (!reply.includes('119') && !reply.includes('火警') && !reply.includes('燃气') && !reply.includes('报警')) {
-      issues.push('[红线] S1级别但缺失119/火警/燃气公司/报警');
-    }
+  list.innerHTML = '<div class="session-empty">加载中…</div>';
+  try {
+    const resp = await fetch(`${base}/api/sessions`, { headers: authHeaders() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderSessionList(await resp.json());
+  } catch (e) {
+    list.innerHTML = `<div class="session-empty">加载失败：${escapeHtml(e.message)}</div>`;
   }
-  if (llmRisk === 'M0') {
-    if (!reply.includes('热线') && !reply.includes('就医') && !reply.includes('医院') && !reply.includes('医生') && !reply.includes('心理')) {
-      issues.push('[红线] M0级别未建议心理援助热线或就医');
-    }
-  }
+}
 
-  return issues;
+function closeHistory() {
+  document.getElementById('historyModal').classList.remove('show');
+}
+
+function renderSessionList(sessions) {
+  const list = document.getElementById('sessionList');
+  if (!sessions || sessions.length === 0) {
+    list.innerHTML = '<div class="session-empty">还没有历史对话</div>';
+    return;
+  }
+  list.innerHTML = '';
+  sessions.forEach((s) => {
+    const item = document.createElement('div');
+    item.className = 'session-item' + (s.id === sessionId ? ' active' : '');
+    item.onclick = () => loadSession(s.id);
+
+    const info = document.createElement('div');
+    info.className = 'session-info';
+    const title = document.createElement('div');
+    title.className = 'session-title';
+    title.textContent = s.personality || '小暖';
+    const sub = document.createElement('div');
+    sub.className = 'session-sub';
+    sub.textContent = `${s.message_count || 0} 条消息 · ${formatTime(s.updated_at)}`;
+    info.appendChild(title);
+    info.appendChild(sub);
+
+    const del = document.createElement('button');
+    del.className = 'session-del';
+    del.textContent = '🗑';
+    del.title = '删除';
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      deleteSession(s.id);
+    };
+
+    item.appendChild(info);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+async function loadSession(id) {
+  try {
+    const resp = await fetch(`${backendBase()}/api/sessions/${id}`, {
+      headers: authHeaders()
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    renderSessionMessages(await resp.json());
+    closeHistory();
+  } catch (e) {
+    showSystemMsg('加载会话失败：' + e.message);
+  }
+}
+
+function renderSessionMessages(detail) {
+  sessionId = detail.id;
+  messages = [];
+  document.getElementById('messages').innerHTML = '';
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.style.display = 'none';
+
+  (detail.messages || []).forEach((m) => {
+    addMessage(m.role, m.content, m.role === 'assistant' ? m.risk : null, true);
+    messages.push({ role: m.role, content: m.content });
+  });
+
+  if (detail.personality) {
+    currentPersonality = detail.personality;
+    document.getElementById('personalitySelect').value = detail.personality;
+    updateStatus();
+  }
+  showSystemMsg('已载入历史对话');
+}
+
+async function deleteSession(id) {
+  if (!window.confirm('确定删除这段对话吗？')) return;
+  try {
+    const resp = await fetch(`${backendBase()}/api/sessions/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    });
+    if (!resp.ok && resp.status !== 404) throw new Error(`HTTP ${resp.status}`);
+    if (id === sessionId) newConversation();
+    openHistory();
+  } catch (e) {
+    showSystemMsg('删除失败：' + e.message);
+  }
+}
+
+// 解析单个 SSE 事件块（形如 "event: delta\ndata: {...}"）
+function parseSSEBlock(block) {
+  let event = 'message';
+  const dataLines = [];
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  let data;
+  try {
+    data = JSON.parse(dataLines.join('\n'));
+  } catch (e) {
+    return null;
+  }
+  return { event, data };
+}
+
+function setTyping(show) {
+  document.getElementById('typing').style.display = show ? 'flex' : 'none';
+  document.getElementById('sendBtn').disabled = show;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1215,9 +1375,9 @@ async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
 
-  const apiKey = document.getElementById('apiKey').value.trim();
-  if (!apiKey) {
-    showSystemMsg('请先点击右上角「设置」配置 API Key');
+  const backendUrl = document.getElementById('backendUrl').value.trim().replace(/\/+$/, '');
+  if (!backendUrl) {
+    showSystemMsg('请先点击右上角「设置」配置后端地址');
     toggleSettings();
     return;
   }
@@ -1234,55 +1394,66 @@ async function sendMessage() {
   setTyping(true);
   isGenerating = true;
 
-  const baseUrl = document.getElementById('apiBaseUrl').value.trim();
-  const model = document.getElementById('modelName').value.trim();
-
   try {
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
+    const payload = { message: text, personality: currentPersonality };
+    if (sessionId) payload.session_id = sessionId;
+    else payload.history = messages.slice(0, -1);
+
+    const resp = await fetch(`${backendUrl}/api/chat/stream`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: messages.slice(-10),
-        temperature: 0.7,
-        max_tokens: 600
-      })
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
     });
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    if (!resp.body) {
+      throw new Error('当前浏览器不支持流式响应');
     }
 
-    const data = await resp.json();
-    let rawReply = data.choices[0].message.content.trim();
+    const msgDiv = addMessage('assistant', '', null);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let assistantText = '';
+    let finished = false;
 
-    // 提取场景/风险标签（末尾优先，任意位置兜底）
-    const tagPatternEnd = /\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]\s*$/;
-    const tagPatternAny = /\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]/;
-    let m = rawReply.match(tagPatternEnd) || rawReply.match(tagPatternAny);
-    let llmRisk = "?";
-    let reply = rawReply;
-    if (m) {
-      llmRisk = m[1] || m[2] || m[3] || m[4];
-      reply = (rawReply.substring(0, m.index) + rawReply.substring(m.index + m[0].length)).trim();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const evt = parseSSEBlock(block);
+        if (!evt) continue;
+
+        if (evt.event === 'delta') {
+          assistantText += evt.data.text || '';
+          setBubbleText(msgDiv, assistantText);
+        } else if (evt.event === 'done') {
+          assistantText = evt.data.reply || assistantText;
+          setBubbleText(msgDiv, assistantText);
+          updateMessageRisk(msgDiv, evt.data.risk);
+          showQualityWarning(msgDiv, evt.data.violations);
+          if (evt.data.session_id) sessionId = evt.data.session_id;
+          messages.push({ role: 'assistant', content: assistantText });
+          if (autoTtsEnabled) speak(assistantText);
+          finished = true;
+        } else if (evt.event === 'error') {
+          throw new Error(evt.data.detail || '流式请求出错');
+        }
+      }
     }
 
-    const issues = quickCheck(reply, llmRisk);
-    const msgDiv = addMessage('assistant', reply, llmRisk);
-
-    if (issues.length > 0) {
-      const warn = document.createElement('div');
-      warn.className = 'quality-warning';
-      warn.textContent = '⚠️ 质检提示：' + issues.join(' | ');
-      msgDiv.querySelector('.msg-body').appendChild(warn);
+    if (!finished) {
+      setBubbleText(msgDiv, assistantText);
+      messages.push({ role: 'assistant', content: assistantText });
     }
-
-    messages.push({ role: "assistant", content: rawReply });
-
   } catch (e) {
     showSystemMsg('请求出错：' + e.message);
   } finally {

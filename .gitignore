@@ -28,6 +28,9 @@ Thumbs.db
 # Logs
 *.log
 
+# 本地数据库
+backend/data/
+
 # Generated data artifacts (keep committed examples, ignore future outputs)
 skills/healthconsult-assistant-skill/examples/generated_candidates_*.jsonl
 skills/healthconsult-assistant-skill/examples/*_bad_cases.csv
