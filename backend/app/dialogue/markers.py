@@ -54,6 +54,46 @@ def _contains_any(text: str, keywords) -> bool:
     return any(k in text for k in keywords)
 
 
+def _canonical_risk(risk: str) -> str:
+    """规范风险等级大小写：前缀大写，R2a/R2b 的 a/b 保持小写。"""
+    risk = risk.strip()
+    prefix = risk[0].upper()
+    rest = risk[1:]
+    if rest and rest[-1].lower() in ("a", "b"):
+        rest = rest[:-1] + rest[-1].lower()
+    return prefix + rest
+
+
+def risk_to_marker(risk) -> str:
+    """把风险等级还原为 skill 契约的场景标记。"""
+    raw = (risk or "").strip()
+    if not raw:
+        return ""
+    canonical = _canonical_risk(raw)
+    prefix = canonical[0]
+    if prefix == "S":
+        return f"[SITUATION:{canonical}]"
+    if prefix == "M":
+        return f"[MENTAL:{canonical}]"
+    if prefix == "R":
+        return f"[RISK:{canonical}]"
+    if canonical == "X":
+        return "[OTHER:X]"
+    return ""
+
+
+def append_marker(content: str, risk) -> str:
+    """给正文补上场景标记；已有合法标记则不重复追加。"""
+    content = content or ""
+    if parse_marker(content)[1] is not None:
+        return content
+    marker = risk_to_marker(risk)
+    if not marker:
+        return content
+    return f"{content}\n\n{marker}"
+
+
+
 def parse_marker(raw: str):
     """从 LLM 原始回复中剥离场景标记。
 
