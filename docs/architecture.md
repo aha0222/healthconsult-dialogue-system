@@ -44,7 +44,7 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 | `backend/app/dialogue/routing.py` | 已实现（按风险选择模型） |
 | `backend/app/cache.py` | 已实现（低风险首轮问答缓存，默认关闭） |
 | `backend/app/security.py` | 已实现（API Key 鉴权 + 按 IP 限流） |
-| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认关闭） |
+| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/M0/S0 开启） |
 | `backend/app/alerts.py` | 已实现（高危告警：日志 + 可选 webhook） |
 | `backend/app/logging_config.py` | 已实现（plain / json 结构化日志） |
 | `frontend/chat.html` | 已改为调用后端流式 API，浏览器不再接触大模型密钥 |
@@ -57,7 +57,7 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 |------|------|------|------|
 | 第一层 | `SKILL.md` 作为系统指令 | 0 | LLM 自主分类到 S/M/R/X 并约束行为，绝大多数安全问题在此解决 |
 | 第二层 | 本地关键词快检（`safety_checker`） | <1ms | 覆盖开药、调药、怂恿开门、轻视心理危机等硬红线，命中即替换为安全话术 |
-| 第三层 | LLM 语义复核（`safety/semantic_checker.py`，可选） | 一次 LLM 调用 | 对高风险等级（默认 R3/M0/S0/S1/S2）复核，抓关键词漏掉的换说法越界 |
+| 第三层 | LLM 语义复核（`safety/semantic_checker.py`，默认开启） | 一次 LLM 调用 | 对高风险等级（默认 R3/M0/S0）复核，抓关键词漏掉的换说法越界 |
 
 离线侧另用 `tools/validate_outputs.py --mode llm` 做入库前的精确审查，不走实时链路。
 

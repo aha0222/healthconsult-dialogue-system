@@ -57,13 +57,18 @@
 ### 只想看界面（零安装）
 
 用浏览器直接打开 `frontend/index.html`（人格对比）或 `frontend/chat.html`（在线对话）。
-`chat.html` 填的 API Key 只保存在本机浏览器，不会上传。
+`chat.html` 里填的是**后端访问密钥**（`BACKEND_API_KEY`，由部署方提供），只保存在本机浏览器；
+**大模型 API Key（`DEEPSEEK_API_KEY`）始终保存在服务端环境变量中，浏览器不接触**。
 
 ### 跑 skill 工具与测试
+
+> 测试会 `import backend.app...`，必须安装 `backend/requirements.txt`（含 fastapi / httpx 等）；
+> `tools/requirements.txt` 只覆盖离线脚本，单独安装后跑后端测试会 ImportError。
 
 ```powershell
 # Windows
 python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 .\.venv\Scripts\python.exe -m pip install -r tools/requirements.txt
 .\.venv\Scripts\python.exe -m pytest backend/tests -v
 ```
@@ -72,6 +77,7 @@ python -m venv .venv
 # macOS / Linux
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r backend/requirements.txt
 pip install -r tools/requirements.txt
 python -m pytest backend/tests -v
 ```
