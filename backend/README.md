@@ -89,6 +89,7 @@ python -m venv .venv
 | `MAX_HISTORY_ITEMS` | 单次请求历史消息条数上限 | `20` |
 | `MAX_TOKENS` | 单次回复最大 token | `600` |
 | `TEMPERATURE` | 采样温度 | `0.7` |
+| `THINKING_ENABLED` | 是否开启 DeepSeek 思考模式（实时对话建议关闭） | `0` |
 | `ROUTING_ENABLED` | 是否按风险路由模型 | `0` |
 | `MODEL_FAST` / `MODEL_STRONG` | 低/高风险模型（空则用 `DEEPSEEK_MODEL`） | 空 |
 | `CACHE_ENABLED` | 是否开启回复缓存 | `0` |

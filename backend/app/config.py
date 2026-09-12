@@ -23,6 +23,7 @@
     MAX_HISTORY_ITEMS     单次请求携带的历史消息条数上限，默认 20
     MAX_TOKENS            单次回复最大 token，默认 600
     TEMPERATURE           采样温度，默认 0.7
+    THINKING_ENABLED      是否开启 DeepSeek 思考模式（默认关闭，实时对话更快）
     ROUTING_ENABLED       是否按风险路由模型（默认关闭）
     MODEL_FAST            低风险用的便宜模型（默认同 DEEPSEEK_MODEL）
     MODEL_STRONG          高风险用的更强模型（默认同 DEEPSEEK_MODEL）
@@ -72,6 +73,7 @@ class Settings:
     max_history: int = 10
     temperature: float = 0.7
     max_tokens: int = 600
+    thinking_enabled: bool = False
     db_path: str = str(DEFAULT_DB_PATH)
     backend_api_key: str = ""
     rate_limit_per_minute: int = 60
@@ -133,6 +135,7 @@ class Settings:
             max_history_items=int(os.environ.get("MAX_HISTORY_ITEMS", "20")),
             temperature=float(os.environ.get("TEMPERATURE", "0.7")),
             max_tokens=int(os.environ.get("MAX_TOKENS", "600")),
+            thinking_enabled=_to_bool(os.environ.get("THINKING_ENABLED"), False),
             routing_enabled=_to_bool(os.environ.get("ROUTING_ENABLED"), False),
             model_fast=os.environ.get("MODEL_FAST", ""),
             model_strong=os.environ.get("MODEL_STRONG", ""),
