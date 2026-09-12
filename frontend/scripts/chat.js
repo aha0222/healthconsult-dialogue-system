@@ -98,6 +98,97 @@
     else document.body.removeAttribute("data-risk");
   }
 
+  /* ── Markdown 渲染（先转义，再生成受控标签，避免 XSS） ──── */
+  function escapeHtml(text) {
+    return String(text == null ? "" : text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function inlineMarkdown(text) {
+    return text
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
+  }
+
+  function renderMarkdown(text) {
+    var lines = escapeHtml(text).split(/\r?\n/);
+    var html = [];
+    var listType = null;
+    var inCode = false;
+    var para = [];
+
+    function closeList() {
+      if (listType) { html.push("</" + listType + ">"); listType = null; }
+    }
+    function flushPara() {
+      if (para.length) {
+        html.push("<p>" + inlineMarkdown(para.join("<br>")) + "</p>");
+        para = [];
+      }
+    }
+
+    lines.forEach(function (line) {
+      if (/^\s*```/.test(line)) {
+        if (inCode) { html.push("</code></pre>"); inCode = false; }
+        else { flushPara(); closeList(); html.push("<pre><code>"); inCode = true; }
+        return;
+      }
+      if (inCode) { html.push(line); return; }
+
+      var trimmed = line.trim();
+      if (!trimmed) { flushPara(); closeList(); return; }
+
+      var heading = trimmed.match(/^(#{1,4})\s+(.*)$/);
+      if (heading) {
+        flushPara(); closeList();
+        var level = heading[1].length;
+        html.push("<h" + level + ">" + inlineMarkdown(heading[2]) + "</h" + level + ">");
+        return;
+      }
+
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        flushPara(); closeList(); html.push("<hr>"); return;
+      }
+
+      var bullet = trimmed.match(/^[-*+]\s+(.*)$/);
+      if (bullet) {
+        flushPara();
+        if (listType !== "ul") { closeList(); html.push("<ul>"); listType = "ul"; }
+        html.push("<li>" + inlineMarkdown(bullet[1]) + "</li>");
+        return;
+      }
+
+      var ordered = trimmed.match(/^\d+[.)]\s+(.*)$/);
+      if (ordered) {
+        flushPara();
+        if (listType !== "ol") { closeList(); html.push("<ol>"); listType = "ol"; }
+        html.push("<li>" + inlineMarkdown(ordered[1]) + "</li>");
+        return;
+      }
+
+      var quote = trimmed.match(/^&gt;\s?(.*)$/);
+      if (quote) {
+        flushPara(); closeList();
+        html.push("<blockquote>" + inlineMarkdown(quote[1]) + "</blockquote>");
+        return;
+      }
+
+      para.push(trimmed);
+    });
+
+    if (inCode) html.push("</code></pre>");
+    flushPara();
+    closeList();
+    return html.join("");
+  }
+
   /* ── 初始化 ─────────────────────────────────────────────── */
   function init() {
     loadVoices();
@@ -364,7 +455,8 @@
 
     var bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = content || "";
+    if (role === "assistant") bubble.innerHTML = renderMarkdown(content);
+    else bubble.textContent = content || "";
     body.appendChild(bubble);
 
     var meta = document.createElement("div");
@@ -388,13 +480,13 @@
     msg.appendChild(body);
     messagesEl.appendChild(msg);
 
-    if (role === "assistant" && autoTtsEnabled && content && !silent) speak(content);
+    if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent);
     scrollToBottom();
     return { el: msg, bubble: bubble, meta: meta };
   }
 
   function setBubbleText(msg, text) {
-    msg.bubble.textContent = text;
+    msg.bubble.innerHTML = renderMarkdown(text);
     scrollToBottom();
   }
 
@@ -670,7 +762,7 @@
             showQualityWarning(msg, evt.data.violations);
             if (evt.data.session_id) sessionId = evt.data.session_id;
             messages.push({ role: "assistant", content: assistantText });
-            if (autoTtsEnabled) speak(assistantText);
+            if (autoTtsEnabled) speak(msg.bubble.textContent);
             finished = true;
             announce("小暖已回复");
           } else if (evt.event === "error") {

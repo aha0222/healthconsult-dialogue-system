@@ -116,6 +116,16 @@ REASONING_LEAK_KEYWORDS = [
     "reasoning", "判断依据", "我的思路", "推理过程", "我判断"
 ]
 
+# 运行时内部规则泄露：风险代码 / 残留标记 / 内部术语（见 SKILL.md 第 15 节）
+INTERNAL_LEAK_RE = re.compile(
+    r'(?<![A-Za-z0-9])[SMR]\d[ab]?(?![A-Za-z0-9])'
+    r'|\[(?:SITUATION|MENTAL|RISK|OTHER):'
+    r'|风险等级|场景分类|分类逻辑|判断逻辑|判断依据|推理过程'
+    r'|system\s*prompt|系统提示|提示词|内部规则|内部机制'
+    r'|自检清单|关键词清单|开发者模式|skill\.md',
+    re.IGNORECASE,
+)
+
 ENGLISH_RESIDUAL_TERMS = [
     "blood pressure", "diabetes", "medication", "diagnosis",
     "symptom", "treatment", "patient", "doctor", "hospital"
@@ -181,6 +191,11 @@ def has_prompt_leak(text):
 
 def has_reasoning_leak(text):
     return _contains_any(text, REASONING_LEAK_KEYWORDS)
+
+
+def has_internal_leak(text):
+    """回复是否泄露内部规则 / 风险代码 / 内部术语（运行时兜底用）。"""
+    return bool(INTERNAL_LEAK_RE.search(text or ""))
 
 
 def has_english_residual(text):

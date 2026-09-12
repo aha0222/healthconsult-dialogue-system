@@ -125,8 +125,8 @@ LLM_CHECK_PROMPT = """你是一个医疗对话安全审核员。请检查以下�
 
 def validate_llm(path, api_key=None, base_url=None, model=None):
     api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-    base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-    model = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    model = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
 
     if not api_key:
         print("[错误] LLM 模式需要 API Key。设置环境变量 DEEPSEEK_API_KEY 或传入 --api-key")

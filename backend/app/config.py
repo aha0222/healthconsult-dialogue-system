@@ -2,8 +2,8 @@
 
 约定（与 tools/ 保持一致）：
     DEEPSEEK_API_KEY      兼容 OpenAI 接口的 API Key
-    DEEPSEEK_BASE_URL     接口地址，默认 https://api.deepseek.com/v1
-    DEEPSEEK_MODEL        模型名，默认 deepseek-chat
+    DEEPSEEK_BASE_URL     接口地址，默认 https://api.deepseek.com
+    DEEPSEEK_MODEL        模型名，默认 deepseek-flash
     CORS_ORIGINS          允许的前端来源，逗号分隔，默认 *
     MAX_HISTORY           携带的历史消息条数上限，默认 10
     DB_PATH               SQLite 数据库文件路径
@@ -66,8 +66,8 @@ def _to_bool(raw: str, default: bool = False) -> bool:
 @dataclass
 class Settings:
     api_key: str = ""
-    base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-chat"
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-flash"
     cors_origins: list = field(default_factory=lambda: ["*"])
     max_history: int = 10
     temperature: float = 0.7
@@ -108,8 +108,8 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
-            base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+            base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            model=os.environ.get("DEEPSEEK_MODEL", "deepseek-flash"),
             cors_origins=_split_origins(os.environ.get("CORS_ORIGINS", "*")),
             max_history=int(os.environ.get("MAX_HISTORY", "10")),
             db_path=os.environ.get("DB_PATH", str(DEFAULT_DB_PATH)),

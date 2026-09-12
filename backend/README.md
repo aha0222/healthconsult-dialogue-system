@@ -66,8 +66,8 @@ python -m venv .venv
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
 | `DEEPSEEK_API_KEY` | 大模型 API Key（**必填**，仅在服务端保存） | 空 |
-| `DEEPSEEK_BASE_URL` | 兼容 OpenAI 的接口地址 | `https://api.deepseek.com/v1` |
-| `DEEPSEEK_MODEL` | 模型名 | `deepseek-chat` |
+| `DEEPSEEK_BASE_URL` | 兼容 OpenAI 的接口地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 模型名 | `deepseek-flash` |
 | `CORS_ORIGINS` | 允许的前端来源，逗号分隔 | `*` |
 | `MAX_HISTORY` | 携带的历史消息条数上限 | `10` |
 | `DB_PATH` | SQLite 数据库文件路径 | `backend/data/sessions.db` |
@@ -166,7 +166,7 @@ set BACKEND_API_KEY=your-secret
   "semantic_checked": false,
   "cached": false,
   "personality": "温婉邻居型",
-  "model": "deepseek-chat"
+  "model": "deepseek-flash"
 }
 ```
 

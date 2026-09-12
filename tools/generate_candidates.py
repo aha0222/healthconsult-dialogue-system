@@ -37,8 +37,8 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.safety.safety_checker import check_reply
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
 
 # ── 种子用户输入 ───────────────────────────────────────
 

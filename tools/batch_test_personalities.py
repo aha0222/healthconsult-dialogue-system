@@ -27,8 +27,8 @@ from backend.app.safety.safety_checker import check_reply
 
 # API 配置：优先从环境变量读取，否则在此填入
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
 
 # ── 加载 SKILL.md 作为基础安全规范 ────────────────────
 
