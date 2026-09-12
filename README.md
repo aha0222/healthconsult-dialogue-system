@@ -148,45 +148,6 @@ python -m uvicorn backend.app.main:app --reload --port 8000
 
 ---
 
-## 常用命令速查
-
-| 我想…… | 命令 |
-|--------|------|
-| 一键运行后端（推荐） | `bash scripts/run.sh` |
-| 只准备环境、不启动 | `bash scripts/run.sh --setup-only` |
-| Windows 一键运行 | `powershell -ExecutionPolicy Bypass -File scripts\run.ps1` |
-| 跑后端单测 + 红线用例 | `python -m pytest backend/tests -v` |
-| 启动后端 API | `python -m uvicorn backend.app.main:app --reload --port 8000` |
-| 严格质检训练候选集 | `python tools/validate_outputs.py --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft` |
-| 开发用命令行对话 | `python tools/chat.py --mode local`（或 `--mode api --api-key sk-xxx`） |
-| 清洗候选数据 | `python tools/clean_candidates.py --input <in.jsonl> --output <out.jsonl>` |
-| 生成候选数据 | `python tools/generate_candidates.py`（需要 API Key） |
-| 四版人格批量对比 | `python tools/batch_test_personalities.py`（需要 API Key） |
-| 生成人工抽查清单 | `python tools/generate_manual_review_list.py` |
-| 导出线上样本（脱敏） | `python tools/export_online_samples.py --output online.jsonl` |
-| 只导出高危/兜底样本 | `python tools/export_online_samples.py --output flagged.jsonl --only-flagged` |
-| 风险分级评测 | `python tools/eval_risk.py --mode local --min-accuracy 0.8` |
-
-> Windows 下把 `python` 换成 `.\.venv\Scripts\python.exe`；Ubuntu 上若没激活虚拟环境，用 `python3` 代替 `python`。
-
----
-
-## 常见问题
-
-- **`ensurepip is not available`**：Ubuntu/Debian 缺 venv 支持，执行
-  `sudo apt update && sudo apt install -y python3-venv` 后重试。
-- **`Could not open requirements file: backend/requirements.txt`**：当前不在仓库根目录，
-  先 `cd` 到包含 `backend/`、`tools/`、`frontend/` 的目录。
-- **`Command 'python' not found`**：Ubuntu 默认只有 `python3`；先激活虚拟环境再用 `python`，
-  或临时改用 `python3`。
-- **对话报 502 / `未配置 DEEPSEEK_API_KEY`**：`.env` 里的 `DEEPSEEK_API_KEY` 未填写或无效。
-- **前端连不上后端**：确认后端已启动、设置里的后端地址正确；若后端设置了 `BACKEND_API_KEY`，
-  需填写访问密钥；跨机访问时把 `CORS_ORIGINS` 设为对应来源。
-- **`file://` 打开时接口被拦截**：在 `frontend/` 下运行 `python -m http.server 5500`，
-  改用 `http://localhost:5500/chat.html` 访问。
-
----
-
 ## 如何新增或替换 skill
 
 1. 在 `skills/` 下新建一个目录，放入该 skill 的 `SKILL.md` 与规则、示例。
