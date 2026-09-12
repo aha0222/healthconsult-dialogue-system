@@ -474,15 +474,16 @@
       meta.appendChild(tts);
     }
 
-    if (risk) updateMessageRisk(msg, risk);
-
     msg.appendChild(avatarNode(role));
     msg.appendChild(body);
     messagesEl.appendChild(msg);
 
+    var wrapper = { el: msg, bubble: bubble, meta: meta };
+    if (risk) updateMessageRisk(wrapper, risk);
+
     if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent);
     scrollToBottom();
-    return { el: msg, bubble: bubble, meta: meta };
+    return wrapper;
   }
 
   function setBubbleText(msg, text) {
