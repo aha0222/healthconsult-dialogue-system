@@ -369,16 +369,6 @@ body[data-risk="M1"] {
   border-color: var(--c-primary);
 }
 
-.quality-warning {
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: var(--c-danger-soft);
-  border: 1px solid var(--c-danger);
-  color: var(--c-danger-strong);
-  font-size: var(--fs-sm);
-  line-height: var(--lh-snug);
-}
-
 /* ── 正在输入 ─────────────────────────────────────────────── */
 .typing {
   display: flex;

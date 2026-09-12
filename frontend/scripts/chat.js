@@ -501,14 +501,6 @@
     msg.meta.insertBefore(span, msg.meta.firstChild);
   }
 
-  function showQualityWarning(msg, issues) {
-    if (!issues || !issues.length) return;
-    var warn = document.createElement("div");
-    warn.className = "quality-warning";
-    warn.textContent = "⚠️ 质检提示：" + issues.join(" | ");
-    msg.el.querySelector(".msg__body").appendChild(warn);
-  }
-
   function showSystemMsg(text, isError) {
     welcomeEl.hidden = true;
     var div = document.createElement("div");
@@ -759,7 +751,9 @@
             setBubbleText(msg, assistantText);
             updateMessageRisk(msg, evt.data.risk);
             setRiskAmbient(evt.data.risk);
-            showQualityWarning(msg, evt.data.violations);
+            if (evt.data.violations && evt.data.violations.length) {
+              console.warn("[小暖质检]", evt.data.violations);
+            }
             if (evt.data.session_id) sessionId = evt.data.session_id;
             messages.push({ role: "assistant", content: assistantText });
             if (autoTtsEnabled) speak(msg.bubble.textContent);
