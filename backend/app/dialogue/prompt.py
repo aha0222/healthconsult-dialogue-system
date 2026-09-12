@@ -45,6 +45,11 @@ RISK_LABELS = {
 
 def load_skill_prompt() -> str:
     """载入 skill 规范文本，供 system prompt 使用。"""
+    if not SKILL_MD.is_file():
+        raise FileNotFoundError(
+            f"找不到 skill 规范文件：{SKILL_MD}。"
+            "请确认仓库结构完整，或设置环境变量 XIAONUAN_SKILL_DIR。"
+        )
     return SKILL_MD.read_text(encoding="utf-8")
 
 

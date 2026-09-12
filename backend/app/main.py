@@ -16,6 +16,7 @@
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ from .dialogue.prompt import (
     normalize_personality,
 )
 from .logging_config import log_event, setup_logging
+from .paths import validate_paths
 from .safety.semantic_checker import SemanticChecker
 from .schemas import (
     AuditRecord,
@@ -55,10 +57,19 @@ setup_logging(settings.log_level, settings.log_format)
 access_logger = logging.getLogger("xiaonuan.access")
 chat_logger = logging.getLogger("xiaonuan.chat")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """启动时校验 skill 规范可定位，避免运行到首个请求才报错。"""
+    validate_paths()
+    yield
+
+
 app = FastAPI(
     title="小暖健康陪护 · 后端",
     description="对话编排 + 三层安全兜底，供 frontend/ 调用。",
     version="0.3.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

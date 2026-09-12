@@ -11,8 +11,8 @@
     RATE_LIMIT_PER_MINUTE 每 IP 每分钟请求上限（0 表示关闭），默认 60
     LOG_LEVEL             日志级别，默认 INFO
     LOG_FORMAT            日志格式 json / plain，默认 plain
-    SEMANTIC_CHECK        是否开启高风险语义复核（1/true 开启），默认关闭
-    SEMANTIC_CHECK_RISKS  需要语义复核的风险等级，逗号分隔，默认 R3,M0,S0,S1,S2
+    SEMANTIC_CHECK        是否开启高风险语义复核（1/true 开启），默认开启
+    SEMANTIC_CHECK_RISKS  需要语义复核的风险等级，逗号分隔，默认 R3,M0,S0
     SEMANTIC_CHECK_FALLBACK 语义复核判定不安全时是否替换为安全话术，默认开启
     ALERT_RISKS           触发告警的风险等级，逗号分隔，默认 R3,M0,S0
     ALERT_WEBHOOK_URL     告警 webhook 地址（为空则仅记录日志）
@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover
     pass
 
 DEFAULT_DB_PATH = REPO_ROOT / "backend" / "data" / "sessions.db"
-DEFAULT_SEMANTIC_RISKS = "R3,M0,S0,S1,S2"
+DEFAULT_SEMANTIC_RISKS = "R3,M0,S0"
 DEFAULT_ALERT_RISKS = "R3,M0,S0"
 
 
@@ -77,7 +77,7 @@ class Settings:
     rate_limit_per_minute: int = 60
     log_level: str = "INFO"
     log_format: str = "plain"
-    semantic_check: bool = False
+    semantic_check: bool = True
     semantic_check_risks: set = field(
         default_factory=lambda: _split_set(DEFAULT_SEMANTIC_RISKS)
     )
@@ -117,7 +117,7 @@ class Settings:
             rate_limit_per_minute=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "60")),
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             log_format=os.environ.get("LOG_FORMAT", "plain"),
-            semantic_check=_to_bool(os.environ.get("SEMANTIC_CHECK"), False),
+            semantic_check=_to_bool(os.environ.get("SEMANTIC_CHECK"), True),
             semantic_check_risks=_split_set(
                 os.environ.get("SEMANTIC_CHECK_RISKS", DEFAULT_SEMANTIC_RISKS)
             ),

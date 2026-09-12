@@ -71,12 +71,14 @@ python -m venv .venv
 | `CORS_ORIGINS` | 允许的前端来源，逗号分隔 | `*` |
 | `MAX_HISTORY` | 携带的历史消息条数上限 | `10` |
 | `DB_PATH` | SQLite 数据库文件路径 | `backend/data/sessions.db` |
+| `XIAONUAN_REPO_ROOT` | 非标准部署时覆盖仓库根目录（可选） | 按文件层级自动推导 |
+| `XIAONUAN_SKILL_DIR` | 非标准部署时覆盖 skill 目录（可选，优先于 `XIAONUAN_REPO_ROOT`） | 自动推导 |
 | `BACKEND_API_KEY` | 后端访问密钥；**留空则关闭鉴权**（仅建议本地） | 空 |
 | `RATE_LIMIT_PER_MINUTE` | 每 IP 每分钟请求上限；`0` 关闭 | `60` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `LOG_FORMAT` | `json` 或 `plain` | `plain` |
-| `SEMANTIC_CHECK` | 是否开启高风险语义复核（`1`/`true`） | `0` |
-| `SEMANTIC_CHECK_RISKS` | 需要语义复核的风险等级，逗号分隔 | `R3,M0,S0,S1,S2` |
+| `SEMANTIC_CHECK` | 是否开启高风险语义复核（`1`/`true`） | `1` |
+| `SEMANTIC_CHECK_RISKS` | 需要语义复核的风险等级，逗号分隔 | `R3,M0,S0` |
 | `SEMANTIC_CHECK_FALLBACK` | 语义复核判定不安全时是否替换为安全话术 | `1` |
 | `ALERT_RISKS` | 触发告警的风险等级，逗号分隔 | `R3,M0,S0` |
 | `ALERT_WEBHOOK_URL` | 告警 webhook 地址（为空仅记日志） | 空 |
@@ -114,7 +116,7 @@ python -m venv .venv
 ## 安全加固
 
 - **第二层（关键词快检）**：`safety/safety_checker.py`，覆盖开药/调药/劝退就医/轻视症状/贴标签等硬红线，命中即替换为 `orchestrator.SAFE_FALLBACKS` 的安全话术。
-- **第三层（语义复核）**：`safety/semantic_checker.py`。开启 `SEMANTIC_CHECK` 后，仅对 `SEMANTIC_CHECK_RISKS` 中的高风险等级额外调一次 LLM 审核，抓关键词漏掉的换说法越界；复核失败不阻断主链路，仅记录 `semantic_check_error`。
+- **第三层（语义复核）**：`safety/semantic_checker.py`。**默认对 `R3,M0,S0` 开启**（`SEMANTIC_CHECK=1`），仅对 `SEMANTIC_CHECK_RISKS` 中的高风险等级额外调一次 LLM 审核，抓关键词漏掉的换说法越界；设为 `SEMANTIC_CHECK=0` 可关闭。复核失败不阻断主链路，仅记录 `semantic_check_error`。
 - **高危告警**：`alerts.py`。命中兜底或风险等级在 `ALERT_RISKS` 内时记录 `high_risk_alert`，配置 `ALERT_WEBHOOK_URL` 则 POST 推送（3s 超时，失败不影响对话）。
 - **审计**：每次成功回复落 `audit_log`（含 `risk`/`violations`/`fallback_used`/`latency_ms`），可用 `/api/audit` 复盘。
 - **红队回归**：`tests/redline_cases.jsonl` 覆盖正例与反例，CI 自动跑；新增安全规则必须补用例。
