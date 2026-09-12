@@ -1,0 +1,149 @@
+/* ==========================================================================
+   小暖 · 设计令牌 (Design Tokens)
+   原型：Organic / Natural（暖色自然）
+   差异化锚点：「暖光对话面」——暖色环境光 + 纸张质感卡片
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ── 基础色板 ───────────────────────────────────────────── */
+  --c-cream: #fff8f0;
+  --c-paper: #ffffff;
+  --c-paper-warm: #fff3e6;
+  --c-sand: #f6eadb;
+  --c-border: #eadfd2;
+  --c-border-strong: #d9c7b3;
+
+  --c-ink: #2b2018;
+  --c-ink-soft: #5c4b3d;
+  --c-ink-muted: #8a7868;
+  --c-ink-faint: #b3a294;
+
+  --c-primary: #e8722c;
+  --c-primary-strong: #c85a18;
+  --c-primary-soft: #fde4d2;
+  --c-honey: #e8a33d;
+  --c-honey-soft: #fcefd6;
+  --c-sage: #4f8a5b;
+  --c-sage-soft: #e4f0e4;
+  --c-amber: #c97a16;
+  --c-amber-soft: #fbebd2;
+  --c-danger: #c4432b;
+  --c-danger-strong: #a32e1a;
+  --c-danger-soft: #fbe0d9;
+
+  /* ── 语义别名 ───────────────────────────────────────────── */
+  --color-bg: var(--c-cream);
+  --color-surface: var(--c-paper);
+  --color-surface-warm: var(--c-paper-warm);
+  --color-text: var(--c-ink);
+  --color-text-muted: var(--c-ink-muted);
+  --color-primary: var(--c-primary);
+  --color-accent: var(--c-honey);
+  --color-border: var(--c-border);
+  --color-success: var(--c-sage);
+  --color-warning: var(--c-amber);
+  --color-error: var(--c-danger);
+
+  /* ── 风险等级色（保留原有语义） ─────────────────────────── */
+  --risk-r3-bg: #c4432b;  --risk-r3-fg: #ffffff;
+  --risk-r2b-bg: #f6d3cb; --risk-r2b-fg: #8f2c18;
+  --risk-r2a-bg: #fbe0c4; --risk-r2a-fg: #8a4a12;
+  --risk-r1-bg: #fcefd6;  --risk-r1-fg: #8a6314;
+  --risk-r0-bg: #e4f0e4;  --risk-r0-fg: #2f6b3c;
+  --risk-s0-bg: #c4432b;  --risk-s0-fg: #ffffff;
+  --risk-s1-bg: #fbe0c4;  --risk-s1-fg: #8a4a12;
+  --risk-s2-bg: #fbe3ce;  --risk-s2-fg: #8a4a12;
+  --risk-m0-bg: #e9c9db;  --risk-m0-fg: #8a2b58;
+  --risk-m1-bg: #efdcec;  --risk-m1-fg: #6e3a78;
+  --risk-x-bg: #efe8e0;   --risk-x-fg: #7a6a5c;
+
+  /* ── 字体 ───────────────────────────────────────────────── */
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --font-display: "Songti SC", "STSong", "Noto Serif SC", "SimSun", serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  /* 以 rem 为主，根字号随「字体大小」档位缩放 */
+  --fs-xs: 0.875rem;
+  --fs-sm: 1rem;
+  --fs-md: 1.125rem;
+  --fs-lg: 1.375rem;
+  --fs-xl: clamp(1.5rem, 3.6vw, 2rem);
+  --fs-2xl: clamp(2rem, 6vw, 3.25rem);
+
+  --lh-tight: 1.15;
+  --lh-snug: 1.35;
+  --lh-body: 1.65;
+
+  /* ── 间距 ───────────────────────────────────────────────── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* ── 圆角 ───────────────────────────────────────────────── */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-full: 999px;
+
+  /* ── 阴影（暖色调、分层） ───────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(80, 50, 25, 0.06), 0 1px 3px rgba(80, 50, 25, 0.05);
+  --shadow-md: 0 2px 6px rgba(80, 50, 25, 0.06), 0 6px 16px rgba(80, 50, 25, 0.07);
+  --shadow-lg: 0 6px 18px rgba(80, 50, 25, 0.09), 0 18px 40px rgba(80, 50, 25, 0.1);
+  --shadow-warm: 0 8px 30px rgba(232, 114, 44, 0.18);
+
+  /* ── 动效 ───────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
+  --dur-slow: 420ms;
+
+  /* ── 纹理与光照 ─────────────────────────────────────────── */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  --ambient: radial-gradient(120% 90% at 12% 0%, #ffe9d4 0%, transparent 55%),
+    radial-gradient(110% 80% at 100% 8%, #fdeede 0%, transparent 50%),
+    radial-gradient(140% 120% at 50% 100%, #fff3e4 0%, transparent 60%);
+
+  --header-h: 4.75rem;
+  --content-max: 56rem;
+}
+
+/* ── 字体大小档位（适老化）：缩放根字号 ───────────────────── */
+html.fs-normal { font-size: 100%; }
+html.fs-large { font-size: 112.5%; }
+html.fs-xlarge { font-size: 125%; }
+
+/* ── 高对比模式（弱视老人） ───────────────────────────────── */
+html.hc {
+  --c-cream: #ffffff;
+  --c-paper: #ffffff;
+  --c-paper-warm: #ffffff;
+  --c-sand: #ffffff;
+  --c-border: #4a3b2e;
+  --c-border-strong: #2b2018;
+  --c-ink: #000000;
+  --c-ink-soft: #1a120b;
+  --c-ink-muted: #3a2e24;
+  --c-ink-faint: #5c4b3d;
+  --c-primary: #b3490c;
+  --c-primary-strong: #8a3606;
+  --c-primary-soft: #ffe3cf;
+  --color-bg: #ffffff;
+  --color-text: #000000;
+  --ambient: none;
+  --grain: none;
+  --shadow-sm: 0 0 0 1px #4a3b2e;
+  --shadow-md: 0 0 0 2px #4a3b2e;
+  --shadow-lg: 0 0 0 3px #2b2018;
+  --shadow-warm: 0 0 0 2px #b3490c;
+}

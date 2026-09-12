@@ -1,0 +1,572 @@
+/* ==========================================================================
+   小暖 · 人格测试报告页
+   ========================================================================== */
+
+.page {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: var(--space-5);
+}
+
+/* ── 导航 ─────────────────────────────────────────────────── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: rgba(255, 248, 240, 0.85);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.nav__brand {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-primary-strong);
+  text-decoration: none;
+}
+
+.nav__links {
+  display: none;
+  gap: var(--space-5);
+}
+
+.nav__links a {
+  color: var(--c-ink-soft);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.nav__links a:hover {
+  color: var(--c-primary-strong);
+}
+
+.nav__cta {
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-sm);
+}
+
+@media (min-width: 768px) {
+  .nav__links {
+    display: flex;
+  }
+}
+
+/* ── 英雄区 ───────────────────────────────────────────────── */
+.hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-8) 0 var(--space-7);
+}
+
+@media (min-width: 900px) {
+  .hero {
+    grid-template-columns: 1.35fr 1fr;
+    gap: var(--space-7);
+    padding-block: var(--space-8);
+  }
+}
+
+.hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--c-primary-soft);
+  color: var(--c-primary-strong);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  margin-bottom: var(--space-4);
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-4);
+}
+
+.hero h1 span {
+  color: var(--c-primary);
+}
+
+.hero__lead {
+  font-size: var(--fs-md);
+  color: var(--c-ink-soft);
+  max-width: 38rem;
+  margin-bottom: var(--space-5);
+}
+
+.hero__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.hero__stat .num {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--c-primary);
+  line-height: 1;
+}
+
+.hero__stat .label {
+  font-size: var(--fs-xs);
+  color: var(--c-ink-muted);
+  margin-top: var(--space-1);
+}
+
+.hero__art {
+  position: relative;
+}
+
+.hero__art img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── 区块 ─────────────────────────────────────────────────── */
+.section {
+  padding-block: var(--space-7);
+  scroll-margin-top: 5rem;
+}
+
+.section__head {
+  margin-bottom: var(--space-6);
+}
+
+.section__head h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  margin-bottom: var(--space-2);
+}
+
+.section__head p {
+  color: var(--c-ink-muted);
+  max-width: 46rem;
+}
+
+/* ── 人格卡片 ─────────────────────────────────────────────── */
+.persona-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .persona-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 1024px) {
+  .persona-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.persona {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-5);
+  background: var(--c-paper);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out);
+}
+
+.persona:hover {
+  transform: translateY(-0.25rem);
+  box-shadow: var(--shadow-md);
+}
+
+.persona::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--persona-color, var(--c-primary));
+}
+
+.persona__rank {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--c-border-strong);
+  line-height: 1;
+}
+
+.persona__icon {
+  font-size: 2.25rem;
+  margin-bottom: var(--space-3);
+}
+
+.persona__name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+}
+
+.persona__tagline {
+  font-size: var(--fs-sm);
+  color: var(--c-ink-muted);
+  margin-bottom: var(--space-4);
+  min-height: 2.8em;
+}
+
+.persona__trait {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--c-ink-soft);
+  margin-bottom: var(--space-2);
+}
+
+.persona__trait::before {
+  content: "";
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.55em;
+  border-radius: var(--radius-full);
+  background: var(--persona-color, var(--c-primary));
+}
+
+.persona__score {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--c-border);
+}
+
+.persona__score .val {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  color: var(--persona-color, var(--c-primary));
+}
+
+.persona__score .max {
+  font-size: var(--fs-xs);
+  color: var(--c-ink-muted);
+}
+
+/* ── 场景标签页 ───────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.tab {
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--c-border);
+  background: var(--c-paper);
+  color: var(--c-ink-soft);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: border-color var(--dur) var(--ease-out),
+    background-color var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out);
+}
+
+.tab:hover {
+  border-color: var(--c-primary);
+  color: var(--c-primary-strong);
+}
+
+.tab[aria-selected="true"] {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: #fff;
+}
+
+.scenario__head {
+  margin-bottom: var(--space-5);
+}
+
+.scenario__user {
+  position: relative;
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--c-sand);
+  font-size: var(--fs-md);
+  font-style: italic;
+  line-height: var(--lh-body);
+}
+
+.scenario__user::before {
+  content: "老人说";
+  position: absolute;
+  top: -0.7rem;
+  left: var(--space-4);
+  padding: 0 var(--space-2);
+  background: var(--color-bg);
+  font-size: var(--fs-xs);
+  font-style: normal;
+  font-weight: 700;
+  color: var(--c-ink-muted);
+}
+
+.response-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 720px) {
+  .response-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.response {
+  padding: var(--space-5);
+  background: var(--c-paper);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.response__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.response__stars {
+  margin-left: auto;
+  color: var(--c-honey);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.05em;
+}
+
+.response__text {
+  font-size: var(--fs-md);
+  line-height: 1.9;
+}
+
+.response__verdict {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--c-cream);
+  color: var(--c-ink-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+
+/* ── 评分表 ───────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+table.score {
+  width: 100%;
+  min-width: 40rem;
+  border-collapse: collapse;
+  background: var(--c-paper);
+}
+
+table.score caption {
+  caption-side: top;
+  text-align: left;
+  padding: var(--space-4) var(--space-4) 0;
+  color: var(--c-ink-muted);
+  font-size: var(--fs-sm);
+}
+
+table.score th,
+table.score td {
+  padding: var(--space-3) var(--space-4);
+  text-align: center;
+  border-bottom: 1px solid var(--c-border);
+  font-variant-numeric: tabular-nums;
+}
+
+table.score thead th {
+  background: var(--c-sand);
+  font-size: var(--fs-sm);
+}
+
+table.score th:first-child,
+table.score td:first-child {
+  text-align: left;
+}
+
+table.score tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+table.score tr.total td {
+  font-weight: 700;
+  background: var(--c-primary-soft);
+  font-size: var(--fs-md);
+}
+
+.stars {
+  color: var(--c-honey);
+  letter-spacing: 0.05em;
+}
+
+/* ── 柱状图 ───────────────────────────────────────────────── */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  height: 18rem;
+  padding: var(--space-4) 0;
+}
+
+.bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  height: 100%;
+}
+
+.bar-col .bar {
+  width: 100%;
+  max-width: 8rem;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: #fff;
+}
+
+.bar-col .bar-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.bar-col .bar-sub {
+  font-size: var(--fs-xs);
+  color: var(--c-honey);
+}
+
+/* ── 能力条 ───────────────────────────────────────────────── */
+.meters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 720px) {
+  .meters { grid-template-columns: repeat(2, 1fr); }
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.meter__label {
+  flex: none;
+  width: 5rem;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.meter__track {
+  flex: 1;
+  height: 0.625rem;
+  border-radius: var(--radius-full);
+  background: var(--c-border);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--c-honey), var(--c-primary));
+}
+
+/* ── 结论 ─────────────────────────────────────────────────── */
+.conclusion {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-6);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--c-primary-soft), var(--c-honey-soft));
+  border: 1px solid #f6d3b0;
+}
+
+.conclusion h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  margin-bottom: var(--space-3);
+}
+
+.conclusion p {
+  color: var(--c-ink-soft);
+  max-width: 52rem;
+}
+
+.conclusion p + p {
+  margin-top: var(--space-3);
+}
+
+.conclusion .highlight {
+  color: var(--c-primary-strong);
+  font-weight: 700;
+}
+
+/* ── 页脚 ─────────────────────────────────────────────────── */
+.foot {
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  color: var(--c-ink-muted);
+  font-size: var(--fs-sm);
+  border-top: 1px solid var(--c-border);
+}
+
+/* ── 滚动入场（仅在 JS 可用时隐藏，避免内容永久不可见） ───── */
+.reveal {
+  transition: opacity var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
+}
+
+html.js .reveal {
+  opacity: 0;
+  transform: translateY(1.5rem);
+}
+
+html.js .reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
