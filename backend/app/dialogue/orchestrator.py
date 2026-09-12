@@ -14,7 +14,7 @@
 import logging
 
 from ..config import Settings, get_settings
-from ..safety.safety_checker import check_reply
+from ..safety.safety_checker import check_reply, has_internal_leak
 from .llm_client import LLMClient
 from .markers import infer_risk_local, parse_marker
 from .prompt import (
@@ -78,6 +78,12 @@ SAFE_FALLBACKS = {
 GENERIC_FALLBACK = (
     "您先别着急，把情况慢慢讲给我听。"
     "要是身体不舒服，及时联系家人或医生，别自己硬扛。"
+)
+
+# 泄露内部规则/身份被套话时，用以保持在角色内的温和兜底话术
+LEAK_DEFLECTION = (
+    "这些是我心里琢磨的活儿，说出来怕您听着费劲。"
+    "您就跟我说说最近哪儿不舒服、心里有啥放不下的，我好好陪您想想办法，成吗？"
 )
 
 # 流式输出时，末尾标记最长约 14 字符，留足余量避免标记中途闪现
@@ -186,6 +192,12 @@ class DialogueOrchestrator:
         fallback_used = bool(reply_violations)
         if fallback_used:
             reply = safe_fallback(risk)
+
+        # 身份/内部规则泄露：不解释、不展示，改用角色内的温和兜底
+        if not fallback_used and has_internal_leak(reply):
+            violations.append("internal_leak")
+            fallback_used = True
+            reply = LEAK_DEFLECTION
 
         # 第三层：高风险场景的 LLM 语义复核（关键词漏网之鱼的兜底）
         semantic_checked = False

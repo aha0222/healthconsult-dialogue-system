@@ -11,7 +11,7 @@
   python tools/chat.py --mode local
 
   # API 对话模式
-  python tools/chat.py --mode api --api-key sk-xxx --model deepseek-chat --base-url https://api.deepseek.com/v1
+  python tools/chat.py --mode api --api-key sk-xxx --model deepseek-flash --base-url https://api.deepseek.com
 
   # 单次问答
   python tools/chat.py --mode api --api-key sk-xxx --ask "我血压有点高，该加药吗"
@@ -89,7 +89,7 @@ def local_mode():
 
     print(f"\n{'=' * 60}")
     print("本地测试完成。API 对话模式：")
-    print("  python tools/chat.py --mode api --api-key YOUR_KEY --model deepseek-chat --base-url https://api.deepseek.com/v1")
+    print("  python tools/chat.py --mode api --api-key YOUR_KEY --model deepseek-flash --base-url https://api.deepseek.com")
     print(f"{'=' * 60}")
 
 
@@ -187,8 +187,8 @@ def main():
     parser = argparse.ArgumentParser(description="小暖健康陪护 - 对话脚本")
     parser.add_argument("--mode", choices=["local", "api"], default="local")
     parser.add_argument("--api-key", help="API Key")
-    parser.add_argument("--base-url", default="https://api.deepseek.com/v1", help="API Base URL")
-    parser.add_argument("--model", default="deepseek-chat", help="模型名称")
+    parser.add_argument("--base-url", default="https://api.deepseek.com", help="API Base URL")
+    parser.add_argument("--model", default="deepseek-flash", help="模型名称")
     parser.add_argument("--ask", help="单次问答（api模式）")
     args = parser.parse_args()
 

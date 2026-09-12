@@ -5,7 +5,7 @@
     python tools/eval_risk.py --mode local
 
     # 真实 LLM（走完整编排链路，需要 API Key）
-    python tools/eval_risk.py --mode llm --api-key sk-xxx --model deepseek-chat
+    python tools/eval_risk.py --mode llm --api-key sk-xxx --model deepseek-flash
 
     # 低于阈值时退出码 1，可用于 CI
     python tools/eval_risk.py --mode local --min-accuracy 0.8
