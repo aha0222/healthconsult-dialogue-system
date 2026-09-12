@@ -53,6 +53,14 @@ class LLMClient:
             total_tokens=getattr(usage, "total_tokens", None),
         )
 
+    def _extra_body(self) -> dict:
+        """DeepSeek 默认开启思考模式（慢且忽略 temperature），这里按配置显式开关。"""
+        return {
+            "thinking": {
+                "type": "enabled" if self.settings.thinking_enabled else "disabled"
+            }
+        }
+
     def chat(self, messages, temperature=None, max_tokens=None, model=None) -> str:
         """调用 chat.completions，返回回复正文。"""
         model = model or self.settings.model
@@ -64,6 +72,7 @@ class LLMClient:
                     self.settings.temperature if temperature is None else temperature
                 ),
                 max_tokens=self.settings.max_tokens if max_tokens is None else max_tokens,
+                extra_body=self._extra_body(),
             )
         except LLMError:
             raise
@@ -86,6 +95,7 @@ class LLMClient:
                 ),
                 max_tokens=self.settings.max_tokens if max_tokens is None else max_tokens,
                 stream=True,
+                extra_body=self._extra_body(),
             )
         except LLMError:
             raise
