@@ -5,6 +5,7 @@
 """
 
 from ..paths import SKILL_MD
+from .taxonomy import RISK_LABELS, SCENE_LABELS
 
 DEFAULT_PERSONALITY = "温婉邻居型"
 
@@ -34,13 +35,18 @@ PERSONALITY_DESCRIPTIONS = {
     "从容守护型": "淡定从容，一二三讲清楚",
 }
 
-RISK_LABELS = {
-    "S0": "人身安全", "S1": "环境安全", "S2": "防诈骗",
-    "M0": "心理危机", "M1": "情绪困扰",
-    "R3": "急症120", "R2b": "紧急就医", "R2a": "尽快就医",
-    "R1": "一般关注", "R0": "日常",
-    "X": "非健康",
-}
+# 风险等级 / 场景类别 → 中文标签（与 taxonomy 保持一致）
+__all__ = [
+    "RISK_LABELS",
+    "SCENE_LABELS",
+    "DEFAULT_PERSONALITY",
+    "PERSONALITY_OVERLAYS",
+    "PERSONALITY_DESCRIPTIONS",
+    "load_skill_prompt",
+    "normalize_personality",
+    "build_system_prompt",
+    "risk_label",
+]
 
 
 def load_skill_prompt() -> str:

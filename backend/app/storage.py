@@ -60,10 +60,16 @@ ALTER TABLE sessions ADD COLUMN profile TEXT;
 ALTER TABLE sessions ADD COLUMN summary_upto INTEGER DEFAULT 0;
 """
 
+SCENES_SCHEMA = """
+ALTER TABLE messages ADD COLUMN scenes TEXT;
+ALTER TABLE audit_log ADD COLUMN scenes TEXT;
+"""
+
 MIGRATIONS = [
     (1, SESSIONS_SCHEMA),
     (2, AUDIT_SCHEMA),
     (3, MEMORY_SCHEMA),
+    (4, SCENES_SCHEMA),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]
@@ -155,13 +161,20 @@ class Database:
 
     # ── 消息 ──
 
-    def add_message(self, session_id: str, role: str, content: str, risk=None):
+    def add_message(self, session_id: str, role: str, content: str, risk=None, scenes=None):
         now = _now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO messages (session_id, role, content, risk, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (session_id, role, content, risk, now),
+                "INSERT INTO messages (session_id, role, content, risk, scenes, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    role,
+                    content,
+                    risk,
+                    json.dumps(scenes or [], ensure_ascii=False),
+                    now,
+                ),
             )
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id)
@@ -182,7 +195,15 @@ class Database:
                     "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC",
                     (session_id,),
                 ).fetchall()
-        return [dict(row) for row in rows]
+        records = []
+        for row in rows:
+            record = dict(row)
+            try:
+                record["scenes"] = json.loads(record.get("scenes") or "[]")
+            except (TypeError, ValueError):
+                record["scenes"] = []
+            records.append(record)
+        return records
 
     # ── 长期记忆 ──
 
@@ -216,6 +237,7 @@ class Database:
         user_message,
         reply,
         risk=None,
+        scenes=None,
         violations=None,
         fallback_used=False,
         model=None,
@@ -225,14 +247,15 @@ class Database:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO audit_log (session_id, personality, user_message, reply, "
-                "risk, violations, fallback_used, model, latency_ms, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "risk, scenes, violations, fallback_used, model, latency_ms, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     personality,
                     user_message,
                     reply,
                     risk,
+                    json.dumps(scenes or [], ensure_ascii=False),
                     json.dumps(violations or [], ensure_ascii=False),
                     1 if fallback_used else 0,
                     model,
@@ -287,6 +310,10 @@ class Database:
                 record["violations"] = json.loads(record.get("violations") or "[]")
             except (TypeError, ValueError):
                 record["violations"] = []
+            try:
+                record["scenes"] = json.loads(record.get("scenes") or "[]")
+            except (TypeError, ValueError):
+                record["scenes"] = []
             record["fallback_used"] = bool(record.get("fallback_used"))
             records.append(record)
         return records

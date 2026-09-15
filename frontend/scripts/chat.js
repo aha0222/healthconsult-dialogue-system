@@ -20,10 +20,17 @@
   };
 
   var RISK_LABEL_MAP = {
-    S0: "人身安全", S1: "环境安全", S2: "防诈骗",
-    M0: "心理危机", M1: "情绪困扰",
-    R3: "急症120", R2b: "紧急就医", R2a: "尽快就医",
-    R1: "一般关注", R0: "日常", X: "非健康",
+    R3: "极高风险", R2b: "高风险", R2a: "中高风险",
+    R1: "中风险", R0: "低风险",
+  };
+
+  var SCENE_LABEL_MAP = {
+    S1: "症状咨询", S2: "用药管理", S3: "慢病管理", S4: "就医引导",
+    M1: "情绪陪伴", M2: "心理危机",
+    L1: "饮食营养", L2: "运动康复", L3: "作息睡眠", L4: "社交活动",
+    E1: "急症识别",
+    N1: "人身安全", N2: "环境安全", N3: "诈骗财产",
+    X1: "闲聊", X2: "系统功能",
   };
 
   var ASSISTANT_AVATAR = "assets/温婉晚辈头像.webp";
@@ -352,7 +359,7 @@
       return;
     }
     if (synth.speaking) synth.cancel();
-    var clean = (text || "").replace(/\s*\[(?:SITUATION|S|MENTAL|RISK|OTHER):[^\]]+\]\s*$/g, "").trim();
+    var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return;
     var u = new SpeechSynthesisUtterance(clean);
     u.voice = zhVoice;
@@ -444,7 +451,7 @@
     return span;
   }
 
-  function addMessage(role, content, risk, silent) {
+  function addMessage(role, content, risk, scenes, silent) {
     welcomeEl.hidden = true;
 
     var msg = document.createElement("div");
@@ -479,7 +486,7 @@
     messagesEl.appendChild(msg);
 
     var wrapper = { el: msg, bubble: bubble, meta: meta };
-    if (risk) updateMessageRisk(wrapper, risk);
+    if (risk || (scenes && scenes.length)) updateMessageRisk(wrapper, risk, scenes);
 
     if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent);
     scrollToBottom();
@@ -491,15 +498,29 @@
     scrollToBottom();
   }
 
-  function updateMessageRisk(msg, risk) {
-    var existing = msg.meta.querySelector("[class^='risk--']");
-    if (existing) existing.remove();
+  function updateMessageRisk(msg, risk, scenes) {
+    var stale = msg.meta.querySelectorAll("[data-tag]");
+    Array.prototype.forEach.call(stale, function (node) { node.remove(); });
+
+    var frag = document.createDocumentFragment();
     var label = RISK_LABEL_MAP[risk];
-    if (!label) return;
-    var span = document.createElement("span");
-    span.className = "risk--" + risk;
-    span.textContent = label;
-    msg.meta.insertBefore(span, msg.meta.firstChild);
+    if (label) {
+      var span = document.createElement("span");
+      span.className = "risk--" + risk;
+      span.setAttribute("data-tag", "risk");
+      span.textContent = label;
+      frag.appendChild(span);
+    }
+    (scenes || []).forEach(function (scene) {
+      var text = SCENE_LABEL_MAP[scene];
+      if (!text) return;
+      var chip = document.createElement("span");
+      chip.className = "scene-chip";
+      chip.setAttribute("data-tag", "scene");
+      chip.textContent = text;
+      frag.appendChild(chip);
+    });
+    if (frag.childNodes.length) msg.meta.insertBefore(frag, msg.meta.firstChild);
   }
 
   function showSystemMsg(text, isError) {
@@ -622,7 +643,13 @@
     welcomeEl.hidden = true;
 
     (detail.messages || []).forEach(function (m) {
-      addMessage(m.role, m.content, m.role === "assistant" ? m.risk : null, true);
+      addMessage(
+        m.role,
+        m.content,
+        m.role === "assistant" ? m.risk : null,
+        m.role === "assistant" ? m.scenes : null,
+        true
+      );
       messages.push({ role: m.role, content: m.content });
     });
 
@@ -681,7 +708,7 @@
 
     if (isListening) toggleVoiceInput();
 
-    addMessage("user", text, null);
+    addMessage("user", text, null, null);
     messages.push({ role: "user", content: text });
 
     inputEl.value = "";
@@ -719,7 +746,7 @@
   }
 
   function readStream(body) {
-    var msg = addMessage("assistant", "", null);
+    var msg = addMessage("assistant", "", null, null);
     msg.el.classList.add("is-thinking");
     var reader = body.getReader();
     var decoder = new TextDecoder("utf-8");
@@ -750,7 +777,7 @@
           } else if (evt.event === "done") {
             assistantText = evt.data.reply || assistantText;
             setBubbleText(msg, assistantText);
-            updateMessageRisk(msg, evt.data.risk);
+            updateMessageRisk(msg, evt.data.risk, evt.data.scenes);
             setRiskAmbient(evt.data.risk);
             if (evt.data.violations && evt.data.violations.length) {
               console.warn("[小暖质检]", evt.data.violations);

@@ -16,7 +16,7 @@ import logging
 from ..config import Settings, get_settings
 from ..safety.safety_checker import check_reply, has_internal_leak
 from .llm_client import LLMClient
-from .markers import infer_risk_local, parse_marker
+from .markers import infer_tags_local, parse_marker
 from .prompt import (
     DEFAULT_PERSONALITY,
     build_system_prompt,
@@ -24,32 +24,12 @@ from .prompt import (
     risk_label,
 )
 from .routing import select_model
+from .taxonomy import SCENE_LABELS, canonical_risk, normalize_scenes
 
 logger = logging.getLogger("xiaonuan.dialogue")
 
 # 命中硬红线时使用的安全兜底话术（按风险等级）
-SAFE_FALLBACKS = {
-    "S0": (
-        "您先别开门，也别出去，把门锁好。马上打 110 报警，"
-        "告诉对方您已经报警了，然后到安全的地方等着。我在这儿陪着您，别慌。"
-    ),
-    "S1": (
-        "您先别慌。如果闻到煤气味，赶紧打开窗户、关掉燃气总阀，"
-        "不要开灯也不要打电话，先到屋外去，再打 119 或燃气公司电话。"
-    ),
-    "S2": (
-        "这多半是骗局，您千万别转账、别扫码、别透露银行卡和验证码。"
-        "先挂断，给子女打个电话确认一下，实在拿不准就打 110。"
-    ),
-    "M0": (
-        "您愿意跟我说这些，我很心疼，也谢谢您信任我，您不是一个人。"
-        "请您现在就拨打心理援助热线 400-161-9995，"
-        "或者让家人陪您去心理科看看。我会一直在这儿听您说。"
-    ),
-    "M1": (
-        "听您这么说，我心里也沉甸甸的。这些情绪不是您的错，也不丢人。"
-        "咱们可以先去社区心理科聊聊，我陪您把想说的话一起记下来。"
-    ),
+RISK_FALLBACKS = {
     "R3": (
         "您现在的症状像是急症，不能在家等。请马上打 120，"
         "或者让身边的人帮您叫急救。等待时保持坐位或半卧，别进食进水，"
@@ -72,7 +52,32 @@ SAFE_FALLBACKS = {
         "我在听您说。您先别着急，把情况慢慢讲给我听，咱们一起想办法。"
         "有需要的话，记得联系家人或医生。"
     ),
-    "X": "这个我可能帮不上太多忙，不过您要是想聊聊别的，我也在。",
+}
+
+# 场景专属兜底（同一风险等级下不同场景话术不同，优先于风险兜底）
+SCENE_FALLBACKS = {
+    "E1": RISK_FALLBACKS["R3"],
+    "N1": (
+        "您先别开门，也别出去，把门锁好。马上打 110 报警，"
+        "告诉对方您已经报警了，然后到安全的地方等着。我在这儿陪着您，别慌。"
+    ),
+    "N2": (
+        "您先别慌。如果闻到煤气味，赶紧打开窗户、关掉燃气总阀，"
+        "不要开灯也不要打电话，先到屋外去，再打 119 或燃气公司电话。"
+    ),
+    "N3": (
+        "这多半是骗局，您千万别转账、别扫码、别透露银行卡和验证码。"
+        "先挂断，给子女打个电话确认一下，实在拿不准就打 110。"
+    ),
+    "M2": (
+        "您愿意跟我说这些，我很心疼，也谢谢您信任我，您不是一个人。"
+        "请您现在就拨打心理援助热线 400-161-9995，"
+        "或者让家人陪您去心理科看看。我会一直在这儿听您说。"
+    ),
+    "M1": (
+        "听您这么说，我心里也沉甸甸的。这些情绪不是您的错，也不丢人。"
+        "咱们可以先去社区心理科聊聊，我陪您把想说的话一起记下来。"
+    ),
 }
 
 GENERIC_FALLBACK = (
@@ -86,22 +91,22 @@ LEAK_DEFLECTION = (
     "您就跟我说说最近哪儿不舒服、心里有啥放不下的，我好好陪您想想办法，成吗？"
 )
 
-# 流式输出时，末尾标记最长约 14 字符，留足余量避免标记中途闪现
-MARKER_HOLDBACK = 32
+# 流式输出时，末尾标记最长约 32 字符，留足余量避免标记中途闪现
+MARKER_HOLDBACK = 48
 
 
-def safe_fallback(risk: str | None) -> str:
-    """按风险等级取安全兜底话术；S/M/R 前缀兜底到通用话术。"""
-    if risk in SAFE_FALLBACKS:
-        return SAFE_FALLBACKS[risk]
-    if risk:
-        prefix = risk[0].upper()
-        if prefix == "S":
-            return SAFE_FALLBACKS["S0"]
-        if prefix == "M":
-            return SAFE_FALLBACKS["M1"]
+def safe_fallback(risk, scenes=None) -> str:
+    """按主场景/风险等级取安全兜底话术。"""
+    for scene in normalize_scenes(scenes):
+        if scene in SCENE_FALLBACKS:
+            return SCENE_FALLBACKS[scene]
+    canonical = canonical_risk(risk)
+    if canonical in RISK_FALLBACKS:
+        return RISK_FALLBACKS[canonical]
+    if canonical:
+        prefix = canonical[0].upper()
         if prefix == "R":
-            return SAFE_FALLBACKS["R1"]
+            return RISK_FALLBACKS["R1"]
     return GENERIC_FALLBACK
 
 
@@ -177,21 +182,22 @@ class DialogueOrchestrator:
         self, raw_reply: str, message: str, personality: str, model: str | None = None
     ) -> dict:
         """解析标记 -> 安全检查 -> 必要时兜底，返回结构化结果。"""
-        reply, risk = parse_marker(raw_reply)
+        reply, risk, scenes = parse_marker(raw_reply)
 
         violations = []
         if risk is None:
-            risk = infer_risk_local(message)
+            risk, inferred_scenes = infer_tags_local(message)
+            scenes = scenes or inferred_scenes
             violations.append("missing_scene_marker")
 
-        reply_violations = check_reply(reply, risk, message)
+        reply_violations = check_reply(reply, risk, scenes, message)
         violations.extend(reply_violations)
 
         # 只有命中硬红线（禁止话术 / 缺失紧急要素）才替换为安全话术；
         # 仅缺少标记属于软提示，不覆盖模型回复。
         fallback_used = bool(reply_violations)
         if fallback_used:
-            reply = safe_fallback(risk)
+            reply = safe_fallback(risk, scenes)
 
         # 身份/内部规则泄露：不解释、不展示，改用角色内的温和兜底
         if not fallback_used and has_internal_leak(reply):
@@ -207,7 +213,7 @@ class DialogueOrchestrator:
             and (risk or "").upper() in self.settings.semantic_check_risks
         ):
             try:
-                review = self.semantic_checker.check(message, reply, risk)
+                review = self.semantic_checker.check(message, reply, risk, scenes)
                 semantic_checked = True
                 if not review.get("ok", True):
                     violations.extend(
@@ -215,7 +221,7 @@ class DialogueOrchestrator:
                     )
                     if self.settings.semantic_check_fallback:
                         fallback_used = True
-                        reply = safe_fallback(risk)
+                        reply = safe_fallback(risk, scenes)
                 if not review.get("parsed", True):
                     violations.append("semantic_check_unparsed")
             except Exception as exc:  # 复核失败不阻断主链路
@@ -225,7 +231,9 @@ class DialogueOrchestrator:
         return {
             "reply": reply,
             "risk": risk,
+            "scenes": scenes,
             "risk_label": risk_label(risk),
+            "scene_labels": [SCENE_LABELS.get(s, s) for s in scenes],
             "violations": violations,
             "fallback_used": fallback_used,
             "semantic_checked": semantic_checked,

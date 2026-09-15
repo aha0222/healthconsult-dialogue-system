@@ -19,18 +19,16 @@
 }
 
 /* 风险环境光：随最新风险等级轻微变化（差异化锚点） */
-body[data-risk="R3"],
-body[data-risk="S0"] {
+body[data-risk="R3"] {
   --ambient: radial-gradient(120% 90% at 12% 0%, #ffd9cb 0%, transparent 55%),
     radial-gradient(110% 80% at 100% 8%, #ffe6d6 0%, transparent 50%),
     radial-gradient(140% 120% at 50% 100%, #fff0e4 0%, transparent 60%);
 }
 
-body[data-risk="M0"],
-body[data-risk="M1"] {
-  --ambient: radial-gradient(120% 90% at 12% 0%, #f7dceb 0%, transparent 55%),
-    radial-gradient(110% 80% at 100% 8%, #f3e4f0 0%, transparent 50%),
-    radial-gradient(140% 120% at 50% 100%, #fff3e4 0%, transparent 60%);
+body[data-risk="R2b"] {
+  --ambient: radial-gradient(120% 90% at 12% 0%, #ffe4d9 0%, transparent 55%),
+    radial-gradient(110% 80% at 100% 8%, #ffefe3 0%, transparent 50%),
+    radial-gradient(140% 120% at 50% 100%, #fff6ee 0%, transparent 60%);
 }
 
 /* ── 顶栏 ─────────────────────────────────────────────────── */

@@ -46,18 +46,14 @@
   --color-warning: var(--c-amber);
   --color-error: var(--c-danger);
 
-  /* ── 风险等级色（保留原有语义） ─────────────────────────── */
+  /* ── 风险等级色 ─────────────────────────────────────────── */
   --risk-r3-bg: #c4432b;  --risk-r3-fg: #ffffff;
   --risk-r2b-bg: #f6d3cb; --risk-r2b-fg: #8f2c18;
   --risk-r2a-bg: #fbe0c4; --risk-r2a-fg: #8a4a12;
   --risk-r1-bg: #fcefd6;  --risk-r1-fg: #8a6314;
   --risk-r0-bg: #e4f0e4;  --risk-r0-fg: #2f6b3c;
-  --risk-s0-bg: #c4432b;  --risk-s0-fg: #ffffff;
-  --risk-s1-bg: #fbe0c4;  --risk-s1-fg: #8a4a12;
-  --risk-s2-bg: #fbe3ce;  --risk-s2-fg: #8a4a12;
-  --risk-m0-bg: #e9c9db;  --risk-m0-fg: #8a2b58;
-  --risk-m1-bg: #efdcec;  --risk-m1-fg: #6e3a78;
-  --risk-x-bg: #efe8e0;   --risk-x-fg: #7a6a5c;
+  /* ── 场景类别标签色 ─────────────────────────────────────── */
+  --scene-chip-bg: #e4f0e4; --scene-chip-fg: #2f6b3c;
 
   /* ── 字体 ───────────────────────────────────────────────── */
   --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",

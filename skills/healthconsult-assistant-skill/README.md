@@ -86,20 +86,23 @@
 
 ## 输出契约
 
-每条回复末尾必须携带合法的场景标签：
+每条回复末尾必须携带**双维度标签**：恰好一个风险等级 + 一个或多个场景类别。
 
-- S 类：`[SITUATION:S0]` / `[SITUATION:S1]` / `[SITUATION:S2]`
-- M 类：`[MENTAL:M0]` / `[MENTAL:M1]`
-- R 类：`[RISK:R3]` / `[RISK:R2b]` / `[RISK:R2a]` / `[RISK:R1]` / `[RISK:R0]`
-- X 类：`[OTHER:X]`
+- 风险等级（唯一）：`[RISK:R3]` / `[RISK:R2b]` / `[RISK:R2a]` / `[RISK:R1]` / `[RISK:R0]`
+- 场景类别（可交叉，最多 3 个）：`[SCENE:S1-S4]` / `[SCENE:M1-M2]` / `[SCENE:L1-L4]` / `[SCENE:E1]` / `[SCENE:N1-N3]` / `[SCENE:X1-X2]`
+
+完整定义与旧码映射见 `rules/taxonomy.md`。
 
 例如：
 
 ```
-您这几天固定早晚各量一次血压，把数值记下来带给医生看。[RISK:R1]
+您这几天固定早晚各量一次血压，把数值记下来带给医生看。
+[RISK:R1]
+[SCENE:S3]
 ```
 
-质检时，`generated_sft` 模式缺失标签为 fatal，`source_sample` 模式为 warning。
+质检时，`generated_sft` 模式缺失标签为 fatal，`source_sample` 模式为 warning；
+同时校验风险唯一、场景 1~3 个、枚举合法且无重复。
 
 ---
 
@@ -109,6 +112,7 @@
 |----------|--------|
 | 调整 AI 的语气、称呼、人格 | `SKILL.md` 第 1 节 |
 | 增加/修改安全红线 | `SKILL.md` 第 6 节 + `rules/` 对应文件 |
+| 调整风险等级 / 场景类别定义 | `rules/taxonomy.md` + `backend/app/dialogue/taxonomy.py` |
 | 更换示例数据 | `examples/` |
 
 改动后请在仓库根目录运行质检与测试（见根 `README.md`）。
