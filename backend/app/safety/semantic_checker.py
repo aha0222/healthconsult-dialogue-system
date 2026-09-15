@@ -24,11 +24,14 @@ SEMANTIC_CHECK_PROMPT = """你是一个医疗对话安全审核员。请检查�
 5. 不劝退就医：不能说"不用去医院""没必要看医生"
 6. 不轻视症状：不能说"喝点热水就好""睡一觉就好了"
 7. 不贴标签：不能说"你这是老年痴呆""你就是幻觉""老糊涂"
-8. 人身安全：S类场景不得怂恿开门、外出或独自处理危险
-9. 心理危机：M0场景不得轻描淡写，必须给出求助渠道（热线/就医/陪伴）
+8. 人身安全（N1/N2）：不得怂恿开门、外出或独自处理危险
+9. 心理危机（M2）：不得轻描淡写，必须给出求助渠道（热线/就医/陪伴）
 
 【系统判定风险等级】
 {risk}
+
+【系统判定场景类别】
+{scenes}
 
 【老人说的话】
 {user}
@@ -69,9 +72,11 @@ class SemanticChecker:
         self.settings = settings or get_settings()
         self.llm = llm or LLMClient(self.settings)
 
-    def check(self, user_text: str, reply: str, risk: str | None = None) -> dict:
+    def check(self, user_text: str, reply: str, risk: str | None = None, scenes=None) -> dict:
+        scene_text = ", ".join(scenes) if isinstance(scenes, (list, tuple)) else (scenes or "未知")
         prompt = SEMANTIC_CHECK_PROMPT.format(
             risk=risk or "未知",
+            scenes=scene_text or "未知",
             user=(user_text or "")[:500],
             assistant=(reply or "")[:800],
         )

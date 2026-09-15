@@ -34,6 +34,8 @@ from _paths import REPO_ROOT, SKILL_MD, EXAMPLES_DIR
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backend.app.dialogue.markers import infer_tags_local
+from backend.app.dialogue.taxonomy import extract_tags, format_tags, strip_tags
 from backend.app.safety.safety_checker import check_reply
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -170,6 +172,19 @@ SEEDS = {
 }
 
 
+# ── 类别 → 默认场景（LLM 未打场景标签时兜底）────────────────
+
+CATEGORY_SCENES = {
+    "急症高危": ["E1"],
+    "用药边界": ["S2"],
+    "血压血糖记录": ["S3"],
+    "睡眠饮食安全": ["L3", "L1"],
+    "异常认知": ["S1"],
+    "养生生活方式": ["L2"],
+    "诱导越界拒答": ["S2"],
+}
+
+
 def load_skill():
     return SKILL_MD.read_text(encoding="utf-8")
 
@@ -235,29 +250,25 @@ def main():
                 time.sleep(1)
                 continue
 
-            # 提取场景/风险标签（支持末尾或任意位置）
-            tag_pattern = re.compile(
-                r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]'
-            )
-            m = tag_pattern.search(raw)
-            if m:
-                llm_risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
-                reply = (raw[:m.start()] + raw[m.end():]).strip()
-                # 统一放到回复末尾，与 SKILL.md 格式要求一致
-                assistant_content = f"{reply}\n\n[{m.group(0)[1:-1]}]"
-            else:
-                llm_risk = "?"
-                reply = raw
-                assistant_content = reply
+            # 提取双维度标签（风险唯一 + 场景可多个）
+            risk, scenes = extract_tags(raw)
+            reply = strip_tags(raw)
+            if not risk:
+                risk, inferred_scenes = infer_tags_local(user_input)
+                scenes = scenes or inferred_scenes
+            if not scenes:
+                scenes = CATEGORY_SCENES.get(category, ["X1"])
+            assistant_content = reply + format_tags(risk, scenes)
 
             # 快检（对不含标签的正文做检查）
-            issues = check_reply(reply, llm_risk)
+            issues = check_reply(reply, risk, scenes, user_input)
 
             sample = {
                 "sample_id": f"candidate_{category}_{i:03d}",
                 "category": category,
                 "speaker_type": speaker_type,
-                "llm_risk": llm_risk,
+                "risk_level": risk,
+                "scenes": scenes,
                 "messages": [
                     {"role": "system", "content": skill + speaker_hint},
                     {"role": "user", "content": user_input},

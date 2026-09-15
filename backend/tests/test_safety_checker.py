@@ -85,16 +85,17 @@ def test_extract_fields_from_various_formats():
         "assistant": "a1",
         "sub_scene": "血压",
         "risk_level": "R1",
+        "scenes": ["S3"],
     }
-    assert _extract_fields(sample1) == ("s1", "u1", "a1", "血压", "R1")
+    assert _extract_fields(sample1) == ("s1", "u1", "a1", "血压", "R1", ["S3"])
 
     sample2 = {
         "id": "s2",
         "user_input": "u2",
         "reply": "a2",
-        "metadata": {"scene": "跌倒", "risk_level": "R2b"},
+        "metadata": {"scene": "跌倒", "risk_level": "R2b", "scenes": ["E1"]},
     }
-    assert _extract_fields(sample2) == ("s2", "u2", "a2", "跌倒", "R2b")
+    assert _extract_fields(sample2) == ("s2", "u2", "a2", "跌倒", "R2b", ["E1"])
 
     sample3 = {
         "messages": [
@@ -102,7 +103,7 @@ def test_extract_fields_from_various_formats():
             {"role": "assistant", "content": "a3"},
         ]
     }
-    assert _extract_fields(sample3) == ("", "u3", "a3", "", "")
+    assert _extract_fields(sample3) == ("", "u3", "a3", "", "", [])
 
 
 def test_scene_marker_missing_is_fatal_in_generated():
@@ -129,14 +130,42 @@ def test_scene_marker_missing_is_warning_in_source():
 
 
 def test_valid_scene_marker_passes():
-    """带合法末尾场景标记的回复不应报缺失"""
+    """带合法双维度末尾标记的回复不应报标记类错误"""
     sample = {
         "sample_id": "marker_valid",
+        "user": "血压有点高",
+        "assistant": "您固定早晚各量一次，把数值记下来带给医生看。\n\n[RISK:R1]\n[SCENE:S3]",
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert not any(
+        reason in ("missing_scene_marker", "missing_scene_tag", "stray_scene_marker")
+        for _, reason in violations
+    )
+
+
+def test_missing_scene_tag_detected():
+    """只有 RISK 没有 SCENE 必须报 fatal"""
+    sample = {
+        "sample_id": "marker_no_scene",
         "user": "血压有点高",
         "assistant": "您固定早晚各量一次，把数值记下来带给医生看。[RISK:R1]",
     }
     _, violations = validate_sample(sample, mode="generated_sft")
-    assert not any(reason == "missing_scene_marker" for _, reason in violations)
+    assert any(reason == "missing_scene_tag" for _, reason in violations)
+
+
+def test_too_many_scene_tags_detected():
+    """场景标签超过 3 个必须报 fatal"""
+    sample = {
+        "sample_id": "marker_too_many",
+        "user": "血压有点高，睡不着，心情差",
+        "assistant": (
+            "您记下来带给医生看。\n\n[RISK:R1]\n[SCENE:S3]\n[SCENE:L3]\n"
+            "[SCENE:M1]\n[SCENE:S2]"
+        ),
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert any(reason == "too_many_scene_tags" for _, reason in violations)
 
 
 def test_stray_scene_marker_detected():
@@ -144,10 +173,24 @@ def test_stray_scene_marker_detected():
     sample = {
         "sample_id": "marker_stray",
         "user": "你好",
-        "assistant": "前面说了 [RISK:R1] 后面还有话。\n[RISK:R0]",
+        "assistant": "前面说了 [RISK:R1] 后面还有话。\n\n[RISK:R0]\n[SCENE:X1]",
     }
     _, violations = validate_sample(sample, mode="generated_sft")
     assert any(reason == "stray_scene_marker" for _, reason in violations)
+
+
+def test_multi_scene_trailing_not_stray():
+    """末尾连续多个 SCENE 标签不应被误判为残留"""
+    sample = {
+        "sample_id": "marker_multi_scene",
+        "user": "血压有点高，心情也不好",
+        "assistant": (
+            "您记下来带给医生看，也跟家人说说心里话。\n\n"
+            "[RISK:R1]\n[SCENE:S3]\n[SCENE:M1]"
+        ),
+    }
+    _, violations = validate_sample(sample, mode="generated_sft")
+    assert not any(reason == "stray_scene_marker" for _, reason in violations)
 
 
 def test_placeholder_detection():

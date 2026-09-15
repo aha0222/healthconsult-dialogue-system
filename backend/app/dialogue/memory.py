@@ -136,7 +136,7 @@ class MemoryManager:
         for m in all_messages[-self.settings.max_history :]:
             content = m["content"]
             if m["role"] == "assistant":
-                content = append_marker(content, m.get("risk"))
+                content = append_marker(content, m.get("risk"), m.get("scenes"))
             history.append({"role": m["role"], "content": content})
         return {
             "history": history,

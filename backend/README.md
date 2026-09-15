@@ -78,9 +78,9 @@ python -m venv .venv
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `LOG_FORMAT` | `json` 或 `plain` | `plain` |
 | `SEMANTIC_CHECK` | 是否开启高风险语义复核（`1`/`true`） | `1` |
-| `SEMANTIC_CHECK_RISKS` | 需要语义复核的风险等级，逗号分隔 | `R3,M0,S0` |
+| `SEMANTIC_CHECK_RISKS` | 需要语义复核的风险等级，逗号分隔 | `R3,R2b` |
 | `SEMANTIC_CHECK_FALLBACK` | 语义复核判定不安全时是否替换为安全话术 | `1` |
-| `ALERT_RISKS` | 触发告警的风险等级，逗号分隔 | `R3,M0,S0` |
+| `ALERT_RISKS` | 触发告警的风险等级，逗号分隔 | `R3,R2b` |
 | `ALERT_WEBHOOK_URL` | 告警 webhook 地址（为空仅记日志） | 空 |
 | `SUMMARY_ENABLED` | 是否开启长会话滚动摘要与画像 | `1` |
 | `SUMMARY_THRESHOLD` | 消息数超过该值才触发摘要 | `20` |
@@ -99,7 +99,7 @@ python -m venv .venv
 ## 性能与成本
 
 - **Token 预算**：`MAX_MESSAGE_CHARS` / `MAX_HISTORY_ITEMS` 在 `schemas.py` 做请求校验，超限返回 `422`；`MAX_TOKENS` / `TEMPERATURE` 控制单次生成成本。每次调用记录 `llm_usage`（prompt/completion/total tokens）便于成本观测。
-- **模型路由**（`dialogue/routing.py`）：开启 `ROUTING_ENABLED` 后，用本地关键词对输入做廉价预判，高风险（R3/R2b/M0/M1/S*）走 `MODEL_STRONG`，其余走 `MODEL_FAST`。
+- **模型路由**（`dialogue/routing.py`）：开启 `ROUTING_ENABLED` 后，用本地关键词对输入做廉价预判，高风险（R3/R2b）走 `MODEL_STRONG`，其余走 `MODEL_FAST`。
 - **回复缓存**（`cache.py`）：TTL + LRU。**默认关闭**，且只缓存"低风险 + 无上下文"的首轮问答（无 `session_id`、无 `history`，本地预判与最终风险均为 R0/R1 且未兜底），高风险/带上下文一律不走缓存。
 - **并发**：当前为同步实现，FastAPI 会把同步端点放到线程池执行，不会阻塞事件循环；进一步可改用 `AsyncOpenAI` + 异步端点（见计划）。
 
@@ -161,7 +161,9 @@ set BACKEND_API_KEY=your-secret
 {
   "reply": "……",
   "risk": "R1",
-  "risk_label": "一般关注",
+  "scenes": ["S3"],
+  "risk_label": "中风险",
+  "scene_labels": ["慢病管理"],
   "violations": [],
   "fallback_used": false,
   "semantic_checked": false,
@@ -171,7 +173,7 @@ set BACKEND_API_KEY=your-secret
 }
 ```
 
-- 后端会剥离 LLM 回复末尾的场景标记，单独以 `risk` 返回。
+- 后端会剥离 LLM 回复末尾的双维度标记，单独以 `risk`（唯一）与 `scenes`（可多个）返回。
 - 命中硬红线（禁止话术 / 缺失紧急要素）时，`reply` 会被替换为安全兜底话术，`fallback_used=true`。
 - `violations` 为质检提示列表，供前端展示；`semantic_checked` 表示是否走了高风险语义复核；`cached` 表示是否命中缓存。
 - 首次请求不传 `session_id` 时会自动新建会话并在响应里返回 `session_id`；后续带上它即可自动续接上下文（此时 `history` 被忽略）。
@@ -181,7 +183,7 @@ set BACKEND_API_KEY=your-secret
 流式输出（SSE），逐字返回。事件类型：
 
 - `event: delta` — `data: {"text": "..."}`，增量文本。
-- `event: done` — `data: {reply, risk, risk_label, violations, fallback_used, semantic_checked, personality, model, session_id}`，最终结果。
+- `event: done` — `data: {reply, risk, scenes, risk_label, scene_labels, violations, fallback_used, semantic_checked, personality, model, session_id}`，最终结果。
   客户端应以 `done.reply` 覆盖已显示的正文（命中红线时它是安全兜底话术）。
 - `event: error` — `data: {"detail": "..."}`。
 

@@ -25,14 +25,18 @@ from _paths import REPO_ROOT
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backend.app.dialogue.markers import infer_risk_local
-from backend.app.evaluation import evaluate_risk, load_cases
+from backend.app.dialogue.markers import infer_risk_local, infer_tags_local
+from backend.app.evaluation import evaluate_risk, evaluate_tags, load_cases
 
 DEFAULT_CASES = REPO_ROOT / "backend" / "tests" / "eval" / "risk_cases.jsonl"
 
 
 def local_predictor(text):
     return infer_risk_local(text)
+
+
+def local_tags_predictor(text):
+    return infer_tags_local(text)
 
 
 def build_llm_predictor(api_key, base_url, model):
@@ -49,11 +53,15 @@ def build_llm_predictor(api_key, base_url, model):
     def predict(text):
         return orchestrator.respond(text)["risk"]
 
-    return predict
+    def predict_tags(text):
+        result = orchestrator.respond(text)
+        return result["risk"], result.get("scenes", [])
+
+    return predict, predict_tags
 
 
 def main():
-    parser = argparse.ArgumentParser(description="风险分级评测（数据闭环）")
+    parser = argparse.ArgumentParser(description="风险分级 + 场景类别评测（数据闭环）")
     parser.add_argument("--cases", default=str(DEFAULT_CASES), help="评测集 JSONL 路径")
     parser.add_argument("--mode", choices=["local", "llm"], default="local")
     parser.add_argument("--min-accuracy", type=float, default=0.0, help="低于该准确率则退出码 1")
@@ -67,17 +75,19 @@ def main():
         if not args.api_key:
             print("[错误] LLM 模式需要 --api-key")
             sys.exit(1)
-        predictor = build_llm_predictor(args.api_key, args.base_url, args.model)
+        predictor, tags_predictor = build_llm_predictor(args.api_key, args.base_url, args.model)
     else:
-        predictor = local_predictor
+        predictor, tags_predictor = local_predictor, local_tags_predictor
 
     metrics = evaluate_risk(predictor, cases)
-    print(json.dumps(metrics, ensure_ascii=False, indent=2))
+    tag_metrics = evaluate_tags(tags_predictor, cases)
+    output = {"risk": metrics, "tags": tag_metrics}
+    print(json.dumps(output, ensure_ascii=False, indent=2))
 
     if metrics["accuracy"] < args.min_accuracy:
         print(f"[FAIL] 准确率 {metrics['accuracy']:.2%} 低于阈值 {args.min_accuracy:.0%}")
         raise SystemExit(1)
-    print(f"[PASS] 准确率 {metrics['accuracy']:.2%}")
+    print(f"[PASS] 风险准确率 {metrics['accuracy']:.2%}；场景 F1 {tag_metrics['scene_f1']:.2%}")
 
 
 if __name__ == "__main__":

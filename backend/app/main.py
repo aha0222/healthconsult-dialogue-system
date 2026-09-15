@@ -34,6 +34,7 @@ from .dialogue.prompt import (
     PERSONALITY_OVERLAYS,
     normalize_personality,
 )
+from .dialogue.taxonomy import RISK_LABELS, SCENE_GROUPS, SCENE_LABELS, RISK_LEVELS, SCENES
 from .logging_config import log_event, setup_logging
 from .paths import validate_paths
 from .safety.semantic_checker import SemanticChecker
@@ -47,6 +48,7 @@ from .schemas import (
     SessionDetail,
     SessionMessage,
     SessionSummary,
+    TaxonomyResponse,
 )
 from .security import get_client_ip, rate_limit, require_api_key
 from .storage import Database
@@ -159,6 +161,7 @@ def _record_audit(db, session_id, request, result, latency_ms):
         "user_message": request.message,
         "reply": result["reply"],
         "risk": result["risk"],
+        "scenes": result.get("scenes", []),
         "violations": result["violations"],
         "fallback_used": result["fallback_used"],
         "model": result["model"],
@@ -195,6 +198,17 @@ def personalities() -> list[PersonalityInfo]:
     ]
 
 
+@app.get("/api/taxonomy", response_model=TaxonomyResponse)
+def taxonomy() -> TaxonomyResponse:
+    return TaxonomyResponse(
+        risk_levels=list(RISK_LEVELS),
+        risk_labels=RISK_LABELS,
+        scenes=list(SCENES),
+        scene_labels=SCENE_LABELS,
+        scene_groups=SCENE_GROUPS,
+    )
+
+
 @app.post(
     "/api/chat",
     response_model=ChatResponse,
@@ -219,7 +233,9 @@ def chat(
             result = dict(cached)
             result["cached"] = True
             db.add_message(session_id, "user", request.message)
-            db.add_message(session_id, "assistant", result["reply"], result["risk"])
+            db.add_message(
+                session_id, "assistant", result["reply"], result["risk"], result.get("scenes")
+            )
             _record_audit(db, session_id, request, result, 0)
             result["session_id"] = session_id
             return ChatResponse(**result)
@@ -240,7 +256,9 @@ def chat(
         cache.set(cache_key, dict(result))
 
     db.add_message(session_id, "user", request.message)
-    db.add_message(session_id, "assistant", result["reply"], result["risk"])
+    db.add_message(
+        session_id, "assistant", result["reply"], result["risk"], result.get("scenes")
+    )
     _record_audit(db, session_id, request, result, latency_ms)
     result["session_id"] = session_id
     return ChatResponse(**result)
@@ -279,7 +297,11 @@ def chat_stream(
                     latency_ms = int((time.perf_counter() - start) * 1000)
                     db.add_message(session_id, "user", request.message)
                     db.add_message(
-                        session_id, "assistant", payload["reply"], payload["risk"]
+                        session_id,
+                        "assistant",
+                        payload["reply"],
+                        payload["risk"],
+                        payload.get("scenes"),
                     )
                     _record_audit(db, session_id, request, payload, latency_ms)
                     payload = dict(payload)
@@ -318,6 +340,7 @@ def get_session(session_id: str, db: Database = Depends(get_db)):
             role=m["role"],
             content=m["content"],
             risk=m.get("risk"),
+            scenes=m.get("scenes") or [],
             created_at=m["created_at"],
         )
         for m in db.get_messages(session_id)

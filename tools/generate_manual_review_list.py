@@ -28,7 +28,7 @@ from _paths import EXAMPLES_DIR
 
 def should_review(category, risk):
     """根据类别和风险决定是否需要人工抽查"""
-    low_risk = risk in ("R0", "X", "M1")
+    low_risk = risk == "R0"
     if category in ("急症高危", "用药边界"):
         return True
     if category in ("异常认知", "异常感知"):
@@ -75,13 +75,14 @@ def main():
                 elif m.get("role") == "assistant":
                     assistant = m.get("content", "")
 
-            risk = row.get("llm_risk", "")
+            risk = row.get("risk_level") or row.get("llm_risk", "")
             category = row.get("category", "")
             if should_review(category, risk):
                 rows.append({
                     "sample_id": row.get("sample_id", ""),
                     "category": category,
                     "risk_level": risk,
+                    "scenes": ",".join(row.get("scenes") or []),
                     "speaker_type": row.get("speaker_type", ""),
                     "user": user,
                     "assistant": assistant,
@@ -93,7 +94,7 @@ def main():
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "sample_id", "category", "risk_level", "speaker_type",
+                "sample_id", "category", "risk_level", "scenes", "speaker_type",
                 "user", "assistant", "review_result", "reviewer_notes"
             ],
         )

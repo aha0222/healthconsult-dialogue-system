@@ -142,12 +142,20 @@
 .risk--R2 { background: var(--risk-r2a-bg); color: var(--risk-r2a-fg); }
 .risk--R1 { background: var(--risk-r1-bg); color: var(--risk-r1-fg); }
 .risk--R0 { background: var(--risk-r0-bg); color: var(--risk-r0-fg); }
-.risk--S0 { background: var(--risk-s0-bg); color: var(--risk-s0-fg); }
-.risk--S1 { background: var(--risk-s1-bg); color: var(--risk-s1-fg); }
-.risk--S2 { background: var(--risk-s2-bg); color: var(--risk-s2-fg); }
-.risk--M0 { background: var(--risk-m0-bg); color: var(--risk-m0-fg); }
-.risk--M1 { background: var(--risk-m1-bg); color: var(--risk-m1-fg); }
-.risk--X { background: var(--risk-x-bg); color: var(--risk-x-fg); }
+
+/* 场景类别标签（可多个，与风险徽章并列） */
+.scene-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25em 0.6em;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: var(--c-sage-soft);
+  color: #2f6b3c;
+}
 
 /* ── 表单 ─────────────────────────────────────────────────── */
 .field {

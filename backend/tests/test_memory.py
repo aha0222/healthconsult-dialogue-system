@@ -93,14 +93,14 @@ def test_prepare_reinjects_marker_into_assistant_history(tmp_path):
     db = Database(tmp_path / "m.db")
     sid = db.create_session("温婉邻居型")
     db.add_message(sid, "user", "我血压有点高")
-    db.add_message(sid, "assistant", "您记下来带给医生看。", "R1")
+    db.add_message(sid, "assistant", "您记下来带给医生看。", "R1", ["S3"])
     db.add_message(sid, "user", "好的")
 
     manager = MemoryManager(db, llm=FakeMemoryLLM(reply="{}"), settings=make_settings())
     ctx = manager.prepare(sid)
     assistant_msgs = [m for m in ctx["history"] if m["role"] == "assistant"]
     assert assistant_msgs
-    assert assistant_msgs[0]["content"].endswith("[RISK:R1]")
+    assert assistant_msgs[0]["content"].endswith("[RISK:R1]\n[SCENE:S3]")
 
 
 def test_prepare_triggers_summary_and_keeps_recent(tmp_path):

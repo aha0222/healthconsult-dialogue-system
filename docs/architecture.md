@@ -16,10 +16,10 @@ skill 是声明式的：它只规定「怎么答」，不包含任何可执行�
 ```
 用户输入
   -> 后端载入 skill（SKILL.md 作为 system prompt，叠加人格覆盖）
-  -> 调用 LLM 生成回复，要求末尾带场景标记
-  -> 解析并剥离标记，得到 (回复正文, 风险等级)
+  -> 调用 LLM 生成回复，要求末尾带双维度标签
+  -> 解析并剥离标记，得到 (回复正文, 风险等级, 场景列表)
   -> safety_checker.check_reply 兜底快检
-  -> 命中硬红线时，替换为按风险等级预置的安全兜底话术
+  -> 命中硬红线时，替换为按主场景/风险等级预置的安全兜底话术
   -> 返回前端展示
 ```
 
@@ -28,7 +28,7 @@ skill 是声明式的：它只规定「怎么答」，不包含任何可执行�
 另有 `POST /api/chat/stream` 提供 SSE 流式输出：先逐字推送 `delta`，最后推送 `done`（命中红线时 `done.reply` 为安全兜底话术，客户端覆盖显示）。
 会话与消息用 SQLite 持久化（`backend/app/storage.py`），带 `session_id` 时自动续接上下文。
 长会话由 `dialogue/memory.py` 维护滚动摘要与长期画像（schema v3），续接时注入 system prompt。
-续接时还会用 `markers.append_marker` 把历史助手回复的场景标记还原，避免模型模仿"无标记"格式而漏标。
+续接时还会用 `markers.append_marker` 把历史助手回复的双维度标签还原，避免模型模仿"无标记"格式而漏标。
 LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜底分级。
 
 ## 实现状态
@@ -44,7 +44,7 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 | `backend/app/dialogue/routing.py` | 已实现（按风险选择模型） |
 | `backend/app/cache.py` | 已实现（低风险首轮问答缓存，默认关闭） |
 | `backend/app/security.py` | 已实现（API Key 鉴权 + 按 IP 限流） |
-| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/M0/S0 开启） |
+| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/R2b 开启） |
 | `backend/app/alerts.py` | 已实现（高危告警：日志 + 可选 webhook） |
 | `backend/app/logging_config.py` | 已实现（plain / json 结构化日志） |
 | `frontend/chat.html` | 已改为调用后端流式 API，浏览器不再接触大模型密钥 |
@@ -55,9 +55,9 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 
 | 层级 | 方式 | 成本 | 作用 |
 |------|------|------|------|
-| 第一层 | `SKILL.md` 作为系统指令 | 0 | LLM 自主分类到 S/M/R/X 并约束行为，绝大多数安全问题在此解决 |
+| 第一层 | `SKILL.md` 作为系统指令 | 0 | LLM 自主定风险等级 + 打场景类别并约束行为，绝大多数安全问题在此解决 |
 | 第二层 | 本地关键词快检（`safety_checker`） | <1ms | 覆盖开药、调药、怂恿开门、轻视心理危机等硬红线，命中即替换为安全话术 |
-| 第三层 | LLM 语义复核（`safety/semantic_checker.py`，默认开启） | 一次 LLM 调用 | 对高风险等级（默认 R3/M0/S0）复核，抓关键词漏掉的换说法越界 |
+| 第三层 | LLM 语义复核（`safety/semantic_checker.py`，默认开启） | 一次 LLM 调用 | 对高风险等级（默认 R3/R2b）复核，抓关键词漏掉的换说法越界 |
 
 离线侧另用 `tools/validate_outputs.py --mode llm` 做入库前的精确审查，不走实时链路。
 
@@ -65,14 +65,16 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 
 ## skill 输出契约
 
-每条回复末尾必须携带合法的场景标记：
+每条回复末尾必须携带**双维度标签**：恰好一个风险等级 + 一个或多个场景类别。
 
-- S 类：`[SITUATION:S0]` / `[SITUATION:S1]` / `[SITUATION:S2]`
-- M 类：`[MENTAL:M0]` / `[MENTAL:M1]`
-- R 类：`[RISK:R3]` / `[RISK:R2b]` / `[RISK:R2a]` / `[RISK:R1]` / `[RISK:R0]`
-- X 类：`[OTHER:X]`
+- 风险等级（唯一）：`[RISK:R3]` / `[RISK:R2b]` / `[RISK:R2a]` / `[RISK:R1]` / `[RISK:R0]`
+- 场景类别（可交叉，最多 3 个）：`[SCENE:S1-S4]` / `[SCENE:M1-M2]` / `[SCENE:L1-L4]` / `[SCENE:E1]` / `[SCENE:N1-N3]` / `[SCENE:X1-X2]`
 
-质检时，`generated_sft` 模式缺失标记为 fatal，`source_sample` 模式为 warning。
+完整定义与旧码映射见 `skills/healthconsult-assistant-skill/rules/taxonomy.md`；
+实现层单一事实源为 `backend/app/dialogue/taxonomy.py`。
+
+质检时，`generated_sft` 模式缺失标记为 fatal，`source_sample` 模式为 warning；
+同时校验风险唯一、场景 1~3 个、枚举合法且无重复。
 
 ## 数据闭环
 
@@ -84,7 +86,7 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
         → 发现问题 → 补规则/补红线用例 → 回归
 ```
 
-- `backend/app/sampling.py`：`redact`（手机号/身份证/银行卡脱敏）、`audit_to_sample`（按 risk 还原场景标记，复用现有质检契约）、`export_samples`（支持 `--since`、`--only-flagged`）。
+- `backend/app/sampling.py`：`redact`（手机号/身份证/银行卡脱敏）、`audit_to_sample`（按 risk + scenes 还原双维度标签，复用现有质检契约）、`export_samples`（支持 `--since`、`--only-flagged`）。
 - `backend/app/evaluation.py` + `tools/eval_risk.py`：固定评测集 `backend/tests/eval/risk_cases.jsonl` 上给风险分级器打分；`--mode local` 用本地兜底分级器（确定性，CI 可跑），`--mode llm` 走真实编排链路。
 - SFT 迭代：`generate_candidates` → `clean_candidates` → `validate_outputs` → `generate_manual_review_list` → 版本化入库（现为 `v0.2.3`）。
 

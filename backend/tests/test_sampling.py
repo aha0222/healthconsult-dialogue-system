@@ -11,9 +11,9 @@ from backend.app.sampling import (
     audit_to_sample,
     export_samples,
     redact,
-    risk_to_marker,
 )
 from backend.app.storage import Database
+from backend.app.dialogue.taxonomy import tags_to_markers
 
 
 def make_db(tmp_path):
@@ -30,14 +30,11 @@ def test_redact_keeps_normal_numbers():
     assert redact("血压150，血糖7.2") == "血压150，血糖7.2"
 
 
-def test_risk_to_marker():
-    assert risk_to_marker("R1") == "[RISK:R1]"
-    assert risk_to_marker("R2b") == "[RISK:R2b]"
-    assert risk_to_marker("S0") == "[SITUATION:S0]"
-    assert risk_to_marker("M0") == "[MENTAL:M0]"
-    assert risk_to_marker("X") == "[OTHER:X]"
-    assert risk_to_marker("") == ""
-    assert risk_to_marker(None) == ""
+def test_tags_to_markers():
+    assert tags_to_markers("R1", ["S3"]) == ["[RISK:R1]", "[SCENE:S3]"]
+    assert tags_to_markers("R2b", ["E1"]) == ["[RISK:R2b]", "[SCENE:E1]"]
+    assert tags_to_markers("R0", ["X1"]) == ["[RISK:R0]", "[SCENE:X1]"]
+    assert tags_to_markers("", []) == []
 
 
 def test_audit_to_sample_shape_and_marker():
@@ -47,6 +44,7 @@ def test_audit_to_sample_shape_and_marker():
         "user_message": "我电话13812345678，血压高",
         "reply": "您记下来带给医生看。",
         "risk": "R1",
+        "scenes": ["S3"],
         "violations": ["missing_scene_marker"],
         "fallback_used": False,
         "model": "deepseek-chat",
@@ -55,8 +53,9 @@ def test_audit_to_sample_shape_and_marker():
     sample = audit_to_sample(record)
     assert sample["sample_id"] == "online_7"
     assert "[手机号]" in sample["user"]
-    assert sample["assistant"].endswith("[RISK:R1]")
+    assert sample["assistant"].endswith("[RISK:R1]\n[SCENE:S3]")
     assert sample["risk_level"] == "R1"
+    assert sample["scenes"] == ["S3"]
     assert sample["metadata"]["source"] == "online"
     assert sample["metadata"]["fallback_used"] is False
 
@@ -67,6 +66,7 @@ def test_audit_to_sample_without_marker():
         "user_message": "你好",
         "reply": "您好。",
         "risk": "",
+        "scenes": [],
         "violations": [],
         "fallback_used": False,
     }
@@ -76,9 +76,9 @@ def test_audit_to_sample_without_marker():
 
 def test_export_samples_filters(tmp_path):
     db = make_db(tmp_path)
-    db.add_audit(None, "温婉邻居型", "u1", "r1", risk="R0", fallback_used=False)
-    db.add_audit(None, "温婉邻居型", "u2", "r2", risk="R2a", fallback_used=True)
-    db.add_audit(None, "温婉邻居型", "u3", "r3", risk="R3", fallback_used=False)
+    db.add_audit(None, "温婉邻居型", "u1", "r1", risk="R0", scenes=["X1"], fallback_used=False)
+    db.add_audit(None, "温婉邻居型", "u2", "r2", risk="R2a", scenes=["S2"], fallback_used=True)
+    db.add_audit(None, "温婉邻居型", "u3", "r3", risk="R3", scenes=["E1"], fallback_used=False)
 
     assert len(export_samples(db)) == 3
     # 兜底 或 高危（R3）
