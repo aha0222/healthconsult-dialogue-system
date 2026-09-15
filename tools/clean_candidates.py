@@ -28,13 +28,14 @@ from _paths import REPO_ROOT, SKILL_MD, EXAMPLES_DIR
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backend.app.dialogue.taxonomy import (
+    extract_tags,
+    format_tags,
+    strip_tags,
+)
 from backend.app.safety.safety_checker import validate_sample
 
 SKILL_TEXT = SKILL_MD.read_text(encoding="utf-8")
-
-TAG_RE = re.compile(
-    r"\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]"
-)
 
 SPEAKER_HINTS = {
     "family_caregiver": (
@@ -51,32 +52,17 @@ SPEAKER_HINTS = {
 }
 
 
-def marker_for(risk):
-    """把风险等级转换为末尾标记体，未知等级返回 None"""
-    risk = (risk or "").strip()
-    if risk.startswith("S"):
-        return f"SITUATION:{risk}"
-    if risk.startswith("M"):
-        return f"MENTAL:{risk}"
-    if risk.startswith("R"):
-        return f"RISK:{risk}"
-    if risk == "X":
-        return "OTHER:X"
-    return None
-
-
-def normalize_assistant(assistant_text, fallback_risk="?"):
-    """提取标签并移到末尾；正文无标签时用 fallback_risk 补一个，返回 (正文, 风险等级)"""
-    m = TAG_RE.search(assistant_text)
-    if not m:
-        marker = marker_for(fallback_risk)
-        if marker:
-            return f"{assistant_text.strip()}\n\n[{marker}]", fallback_risk
-        return assistant_text, fallback_risk
-    tag_body = m.group(0)[1:-1]  # 去掉首尾 []
-    risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
-    reply = (assistant_text[: m.start()] + assistant_text[m.end() :]).strip()
-    return f"{reply}\n\n[{tag_body}]", risk
+def normalize_assistant(assistant_text, fallback_risk="?", fallback_scenes=None):
+    """提取双维度标签并移到末尾；正文无标签时用 fallback 补，返回 (正文, 风险, 场景)。"""
+    risk, scenes = extract_tags(assistant_text)
+    reply = strip_tags(assistant_text)
+    if not risk:
+        risk = fallback_risk
+    if not scenes:
+        scenes = list(fallback_scenes or [])
+    if not risk or risk == "?":
+        return assistant_text, risk, scenes
+    return reply + format_tags(risk, scenes), risk, scenes
 
 
 def clean_row(row):
@@ -89,7 +75,11 @@ def clean_row(row):
         elif m.get("role") == "assistant":
             assistant_msg = m.get("content", "")
 
-    assistant_clean, risk = normalize_assistant(assistant_msg, fallback_risk=row.get("llm_risk", "?"))
+    fallback_risk = row.get("risk_level") or row.get("llm_risk") or "?"
+    fallback_scenes = row.get("scenes") or []
+    assistant_clean, risk, scenes = normalize_assistant(
+        assistant_msg, fallback_risk, fallback_scenes
+    )
     speaker = row.get("speaker_type", "elder_self")
     system_content = SKILL_TEXT + SPEAKER_HINTS.get(speaker, "")
 
@@ -97,7 +87,8 @@ def clean_row(row):
         "sample_id": row.get("sample_id", ""),
         "category": row.get("category", ""),
         "speaker_type": speaker,
-        "llm_risk": risk,
+        "risk_level": risk,
+        "scenes": scenes,
         "messages": [
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_msg},

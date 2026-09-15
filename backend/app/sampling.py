@@ -11,11 +11,11 @@
 
 import re
 
-from .dialogue.markers import risk_to_marker
+from .dialogue.taxonomy import tags_to_markers
 from .storage import Database
 
 # --only-flagged 默认关注的高危等级
-DEFAULT_FLAGGED_RISKS = ("R3", "M0", "S0")
+DEFAULT_FLAGGED_RISKS = ("R3", "R2b")
 
 # 顺序敏感：先身份证（18位）再银行卡（16-19位）再手机号（11位）
 ID_RE = re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)")
@@ -42,14 +42,16 @@ def audit_to_sample(record: dict, redact_text: bool = True) -> dict:
         reply = redact(reply)
 
     risk = record.get("risk") or ""
-    marker = risk_to_marker(risk)
-    assistant = f"{reply}\n\n{marker}" if marker else reply
+    scenes = record.get("scenes") or []
+    markers = tags_to_markers(risk, scenes)
+    assistant = f"{reply}\n\n" + "\n".join(markers) if markers else reply
 
     return {
         "sample_id": f"online_{record.get('id')}",
         "user": user,
         "assistant": assistant,
         "risk_level": risk,
+        "scenes": scenes,
         "metadata": {
             "source": "online",
             "session_id": record.get("session_id"),

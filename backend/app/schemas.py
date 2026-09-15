@@ -34,7 +34,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     risk: str
+    scenes: List[str] = Field(default_factory=list)
     risk_label: str
+    scene_labels: List[str] = Field(default_factory=list)
     violations: List[str] = Field(default_factory=list)
     fallback_used: bool = False
     semantic_checked: bool = False
@@ -69,6 +71,7 @@ class SessionMessage(BaseModel):
     role: str
     content: str
     risk: Optional[str] = None
+    scenes: List[str] = Field(default_factory=list)
     created_at: str
 
 
@@ -93,8 +96,17 @@ class AuditRecord(BaseModel):
     user_message: str
     reply: str
     risk: Optional[str] = None
+    scenes: List[str] = Field(default_factory=list)
     violations: List[str] = Field(default_factory=list)
     fallback_used: bool = False
     model: Optional[str] = None
     latency_ms: Optional[int] = None
     created_at: str
+
+
+class TaxonomyResponse(BaseModel):
+    risk_levels: List[str] = Field(default_factory=list)
+    risk_labels: dict = Field(default_factory=dict)
+    scenes: List[str] = Field(default_factory=list)
+    scene_labels: dict = Field(default_factory=dict)
+    scene_groups: dict = Field(default_factory=dict)

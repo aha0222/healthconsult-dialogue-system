@@ -110,6 +110,16 @@ def test_personalities(make_client):
     assert any(item["default"] for item in items)
 
 
+def test_taxonomy_endpoint(make_client):
+    client = make_client(reply="x")
+    resp = client.get("/api/taxonomy")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["risk_levels"] == ["R3", "R2b", "R2a", "R1", "R0"]
+    assert "S3" in body["scenes"]
+    assert body["scene_labels"]["S3"] == "慢病管理"
+
+
 def test_chat_creates_session_and_persists(make_client):
     client = make_client(reply="您记下来带给医生看。[RISK:R1]")
     resp = client.post("/api/chat", json={"message": "我血压有点高"})

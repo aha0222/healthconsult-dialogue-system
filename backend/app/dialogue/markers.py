@@ -1,139 +1,105 @@
-"""场景/风险标记解析与本地兜底分级。
+"""双维度标记解析与本地兜底分级。
 
-LLM 正常会在回复末尾输出 [RISK:R1] / [SITUATION:S0] / [MENTAL:M0] / [OTHER:X]，
-本模块负责剥离标记；若 LLM 漏标，则用本地关键词做一次保守分级。
+LLM 正常会在回复末尾输出 `[RISK:Rx]` 与若干 `[SCENE:xx]`；本模块负责解析并剥离；
+若 LLM 漏标，则用本地关键词做一次保守分级，返回 (风险等级, 场景列表)。
 """
 
 import re
 
-from ..safety.safety_checker import (
-    has_s_class_indicators,
-    has_m_class_indicators,
+from ..safety.safety_checker import detect_scenes
+from .taxonomy import (
+    MAX_SCENES,
+    extract_tags,
+    strip_tags,
+    tags_to_markers,
 )
 
-# 末尾优先：命中结尾的合法标记
-SCENE_MARKER_END_RE = re.compile(
-    r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]\s*$'
-)
-
-# 任意位置兜底：正文里出现的第一处合法标记
-SCENE_MARKER_ANY_RE = re.compile(
-    r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]'
-)
-
-_S1_KEYWORDS = [
-    "起火", "着火", "冒烟", "浓烟", "煤气", "燃气", "天然气",
-    "漏电", "漏水", "火警", "119",
-]
-_S2_KEYWORDS = [
-    "诈骗", "中奖", "公检法", "转账", "冒充", "可疑链接", "扫码", "汇款",
-]
-_M0_KEYWORDS = [
-    "不想活", "死了算了", "活着没意思", "想死", "自伤", "自杀",
-    "绝望", "没希望", "撑不下去", "走不下去", "熬不下去",
-]
-_EMERGENCY_R3 = [
+# 本地兜底分级关键词
+_R3_KEYWORDS = [
     "喘不上气", "呼吸困难", "说胡话", "意识不清", "叫不醒",
-    "心梗", "中风", "卒中", "大出血",
+    "心梗", "中风", "卒中", "大出血", "胸痛", "半边", "嘴歪",
+    "晕倒", "晕厥", "压榨", "吐血",
 ]
 _R2B_KEYWORDS = [
-    "咳血", "便血", "黑便", "吐血", "摔倒", "摔了", "不能站",
+    "咳血", "便血", "黑便", "摔倒", "摔了", "不能站",
     "视力突然", "发热三天", "高烧不退",
 ]
 _R2A_KEYWORDS = [
-    "换药", "停药", "加药", "减药", "幻觉", "黑影", "人影",
-    "不认识人", "找不到家",
+    "换药", "停药", "加药", "减药", "换那个", "换一种", "换别的",
+    "幻觉", "黑影", "人影", "不认识人", "找不到家",
 ]
 _R1_KEYWORDS = [
     "血压", "血糖", "药", "睡不着", "便秘", "头晕", "胃口",
     "腿疼", "腰酸", "失眠", "心慌",
+    # 情绪困扰（M1 场景中需要专业关注的一类）
+    "没人管我", "被抛弃", "没人要", "没有意义", "难受想哭",
+    "天天一个人", "情绪低落", "提不起兴趣", "孤单",
 ]
+_CHEST_EMERGENCY_RE = re.compile(r'胸[口闷疼痛慌紧]')
+_CHEST_COMPANION_RE = re.compile(r'后背|肩|臂|喘|汗|冷|压')
+_STROKE_RE = re.compile(r'嘴.{0,3}[歪斜]|口.{0,3}[歪斜]|说话含糊|口齿不清|半边|一侧.{0,4}[麻无力动]')
 
 
 def _contains_any(text: str, keywords) -> bool:
     return any(k in text for k in keywords)
 
 
-def _canonical_risk(risk: str) -> str:
-    """规范风险等级大小写：前缀大写，R2a/R2b 的 a/b 保持小写。"""
-    risk = risk.strip()
-    prefix = risk[0].upper()
-    rest = risk[1:]
-    if rest and rest[-1].lower() in ("a", "b"):
-        rest = rest[:-1] + rest[-1].lower()
-    return prefix + rest
-
-
-def risk_to_marker(risk) -> str:
-    """把风险等级还原为 skill 契约的场景标记。"""
-    raw = (risk or "").strip()
-    if not raw:
-        return ""
-    canonical = _canonical_risk(raw)
-    prefix = canonical[0]
-    if prefix == "S":
-        return f"[SITUATION:{canonical}]"
-    if prefix == "M":
-        return f"[MENTAL:{canonical}]"
-    if prefix == "R":
-        return f"[RISK:{canonical}]"
-    if canonical == "X":
-        return "[OTHER:X]"
-    return ""
-
-
-def append_marker(content: str, risk) -> str:
-    """给正文补上场景标记；已有合法标记则不重复追加。"""
-    content = content or ""
-    if parse_marker(content)[1] is not None:
-        return content
-    marker = risk_to_marker(risk)
-    if not marker:
-        return content
-    return f"{content}\n\n{marker}"
-
+def _is_emergency(text: str) -> bool:
+    """是否属于需要立即 120 的极高危急症（区别于 R2b 的紧急就医）。"""
+    if _contains_any(text, _R3_KEYWORDS):
+        return True
+    if _CHEST_EMERGENCY_RE.search(text) and _CHEST_COMPANION_RE.search(text):
+        return True
+    if _STROKE_RE.search(text):
+        return True
+    return False
 
 
 def parse_marker(raw: str):
-    """从 LLM 原始回复中剥离场景标记。
+    """从 LLM 原始回复中剥离双维度标记。
 
-    返回 (回复正文, 风险等级或 None)。末尾标记优先，任意位置兜底。
+    返回 (回复正文, 风险等级或 None, 场景列表)。风险取首个合法 RISK，
+    场景收集全部合法 SCENE（去重、最多 MAX_SCENES 个）。
     """
     raw = (raw or "").strip()
-    m = SCENE_MARKER_END_RE.search(raw) or SCENE_MARKER_ANY_RE.search(raw)
-    if not m:
-        return raw, None
-    risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
-    reply = (raw[: m.start()] + raw[m.end():]).strip()
-    return reply, risk
+    risk, scenes = extract_tags(raw)
+    if risk is None and not scenes:
+        return raw, None, []
+    return strip_tags(raw), risk, scenes[:MAX_SCENES]
+
+
+def append_marker(content: str, risk, scenes=None) -> str:
+    """给正文补上双维度标记；已有合法 RISK 标记则不重复追加。"""
+    content = content or ""
+    if parse_marker(content)[1] is not None:
+        return content
+    markers = tags_to_markers(risk, scenes)
+    if not markers:
+        return content
+    return f"{content}\n\n" + "\n".join(markers)
+
+
+def infer_tags_local(user_text: str):
+    """LLM 漏标时的本地兜底分级（保守，仅供参考），返回 (风险等级, 场景列表)。"""
+    text = user_text or ""
+    scenes = detect_scenes(text)
+
+    risk = "R0"
+    if any(scene in scenes for scene in ("M2", "N1", "N2")) or _is_emergency(text):
+        risk = "R3"
+    elif "E1" in scenes or "N3" in scenes or _contains_any(text, _R2B_KEYWORDS):
+        risk = "R2b"
+    elif _contains_any(text, _R2A_KEYWORDS):
+        risk = "R2a"
+    elif _contains_any(text, _R1_KEYWORDS):
+        risk = "R1"
+
+    if not scenes:
+        scenes = ["S1"] if risk != "R0" else ["X1"]
+
+    return risk, scenes[:MAX_SCENES]
 
 
 def infer_risk_local(user_text: str) -> str:
-    """LLM 漏标时的本地兜底分级（保守，仅供参考）。"""
-    text = user_text or ""
-
-    if has_m_class_indicators(text):
-        return "M0" if _contains_any(text, _M0_KEYWORDS) else "M1"
-
-    if has_s_class_indicators(text):
-        if _contains_any(text, _S1_KEYWORDS):
-            return "S1"
-        if _contains_any(text, _S2_KEYWORDS):
-            return "S2"
-        return "S0"
-
-    if re.search(r'胸[口闷疼痛慌紧]', text) and re.search(r'后背|肩|臂|喘|汗|冷|压', text):
-        return "R3"
-    if re.search(r'半边|一侧.*[麻无力动]|嘴[歪斜]|口[歪斜角]', text):
-        return "R3"
-    if _contains_any(text, _EMERGENCY_R3):
-        return "R3"
-    if _contains_any(text, _R2B_KEYWORDS):
-        return "R2b"
-    if _contains_any(text, _R2A_KEYWORDS):
-        return "R2a"
-    if re.search(r'胸[口闷疼痛慌紧]', text):
-        return "R2a"
-    if _contains_any(text, _R1_KEYWORDS):
-        return "R1"
-    return "R0"
+    """本地兜底分级：仅返回风险等级（路由/评测复用）。"""
+    return infer_tags_local(user_text)[0]

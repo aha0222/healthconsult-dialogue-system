@@ -9,7 +9,7 @@ from ..config import Settings
 from .markers import infer_risk_local
 
 # 需要更强模型的高风险等级
-STRONG_RISKS = {"R3", "R2b", "M0", "M1", "S0", "S1", "S2"}
+STRONG_RISKS = {"R3", "R2b"}
 
 
 def select_model(message: str, settings: Settings) -> str:

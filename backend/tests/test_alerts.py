@@ -30,7 +30,7 @@ def base_record(**overrides):
 def test_should_alert_by_risk():
     settings = Settings()
     assert alerts.should_alert("R3", False, settings) is True
-    assert alerts.should_alert("M0", False, settings) is True
+    assert alerts.should_alert("R2b", False, settings) is True
     assert alerts.should_alert("R0", False, settings) is False
 
 

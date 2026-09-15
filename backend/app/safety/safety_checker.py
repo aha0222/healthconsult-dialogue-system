@@ -9,13 +9,23 @@
   tools/generate_candidates.py
 
 提供:
-  check_reply(reply, llm_risk=None)       单条回复快检 → [违规字符串]
-  validate_sample(sample, mode)           单样本结构+内容校验 → [(severity, reason), ...]
-  batch_validate(rows, mode)              批量校验 → (bad_cases, metrics)
+  check_reply(reply, risk, scenes, user_text)  单条回复快检 → [违规字符串]
+  validate_sample(sample, mode)                单样本结构+内容校验 → [(severity, reason), ...]
+  batch_validate(rows, mode)                   批量校验 → (bad_cases, metrics)
+  detect_scenes(text)                          本地场景关键词识别 → [场景代码]
 """
 
 import re
 from collections import Counter
+
+from ..dialogue.taxonomy import (
+    MAX_SCENES,
+    SCENE_REQUIRED_ACTIONS,
+    canonical_risk,
+    extract_tags,
+    normalize_scenes,
+    validate_tags,
+)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -36,7 +46,7 @@ def clean_negations(text):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 禁止话术（最全版本，覆盖 S/M/R 三类场景）
+# 禁止话术（最全版本，覆盖安全/心理/健康三类场景）
 # ═══════════════════════════════════════════════════════════════
 
 FORBIDDEN_LITERALS = {
@@ -100,13 +110,20 @@ PLACEHOLDER_PATTERNS = [
     "XXX", "某某"
 ]
 
-# 回复末尾必须携带的场景/风险标记（见 SKILL.md 第 13 节）
+# 回复末尾必须携带的双维度标记（见 SKILL.md 第 13 节）
 SCENE_MARKER_RE = re.compile(
-    r'\[(?:SITUATION:S[0-2]|MENTAL:M[0-1]|RISK:R[0-3][ab]?|OTHER:X)\]\s*$'
+    r'\[RISK:R[0-3][ab]?\]'
+    r'(?:\s*\[SCENE:(?:S[1-4]|M[1-2]|L[1-4]|E1|N[1-3]|X[1-2])\])+\s*$'
+)
+
+# 末尾连续的合法标记块（用于识别正文里残留的标记片段）
+TRAILING_TAGS_RE = re.compile(
+    r'(?:\s*\[(?:RISK|SCENE):[^\]]+\])+\s*$',
+    re.IGNORECASE,
 )
 
 # 形似标记但格式不完整/位置不对的片段
-MARKER_LIKE_RE = re.compile(r'\[(?:SITUATION|MENTAL|RISK|OTHER)\b')
+MARKER_LIKE_RE = re.compile(r'\[(?:RISK|SCENE)\b', re.IGNORECASE)
 
 PROMPT_LEAK_KEYWORDS = [
     "system", "prompt", "指令", "角色", "你是一个", "你是小暖", "你的任务是"
@@ -118,9 +135,9 @@ REASONING_LEAK_KEYWORDS = [
 
 # 运行时内部规则泄露：风险代码 / 残留标记 / 内部术语（见 SKILL.md 第 15 节）
 INTERNAL_LEAK_RE = re.compile(
-    r'(?<![A-Za-z0-9])[SMR]\d[ab]?(?![A-Za-z0-9])'
-    r'|\[(?:SITUATION|MENTAL|RISK|OTHER):'
-    r'|风险等级|场景分类|分类逻辑|判断逻辑|判断依据|推理过程'
+    r'(?<![A-Za-z0-9])(?:R[0-3][ab]?|S[1-4]|M[1-2]|L[1-4]|E1|N[1-3]|X[1-2])(?![A-Za-z0-9])'
+    r'|\[(?:RISK|SCENE):'
+    r'|风险等级|场景分类|场景类别|分类逻辑|判断逻辑|判断依据|推理过程'
     r'|system\s*prompt|系统提示|提示词|内部规则|内部机制'
     r'|自检清单|关键词清单|开发者模式|skill\.md',
     re.IGNORECASE,
@@ -134,38 +151,82 @@ ENGLISH_RESIDUAL_TERMS = [
 ROLE_MISMATCH_MARKERS = ["我怎么", "我该吃", "我应该", "要不要去"]
 
 # ═══════════════════════════════════════════════════════════════
-# 场景判断关键词
+# 场景判断关键词（双维度 · 场景类别）
 # ═══════════════════════════════════════════════════════════════
 
-MEDICATION_SCENE_KEYWORDS = [
-    "药", "吃多少", "怎么吃", "能停", "能加", "能减", "换药",
-    "停药", "加药", "减药", "剂量", "漏服", "忘吃"
+# 按优先级排列：越靠前越优先进入场景列表
+SCENE_KEYWORDS = {
+    "N1": [
+        "敲门", "有人敲门", "外面有人", "陌生人", "尾随", "跟踪", "入室",
+        "撬门", "查水表", "快递", "物业", "修水管", "开锁", "开开门",
+    ],
+    "N2": [
+        "起火", "着火", "冒烟", "浓烟", "煤气", "燃气", "天然气",
+        "漏电", "漏水", "火警", "119",
+    ],
+    "M2": [
+        "不想活", "死了算了", "活着没意思", "想死", "自伤", "自杀",
+        "绝望", "没希望", "撑不下去", "走不下去", "熬不下去",
+    ],
+    "E1": [
+        "喘不上气", "呼吸困难", "说胡话", "意识不清", "叫不醒",
+        "心梗", "中风", "卒中", "大出血", "胸痛", "胸口", "半边",
+        "嘴歪", "嘴有点歪", "嘴角", "有点歪", "歪了", "说话含糊",
+        "口齿不清", "含糊", "晕倒", "晕厥", "压榨", "咳血", "便血",
+        "黑便", "吐血", "摔倒", "摔了", "跌倒", "骨折",
+    ],
+    "N3": [
+        "诈骗", "中奖", "中了一等奖", "一等奖", "公检法", "转账", "冒充",
+        "可疑链接", "扫码", "汇款", "会销", "验证码", "手续费", "银行卡",
+    ],
+    "S2": [
+        "药", "吃多少", "怎么吃", "能停", "能加", "能减", "换药",
+        "停药", "加药", "减药", "剂量", "漏服", "忘吃", "补药",
+    ],
+    "S3": [
+        "血压", "血糖", "糖尿病", "高血压", "血脂", "尿酸", "慢病", "指标",
+    ],
+    "S4": [
+        "去医院", "挂什么科", "看医生", "复诊", "门诊", "就医", "要不要去",
+    ],
+    "M1": [
+        "孤独得要命", "没人管我", "被抛弃", "没人要", "没有意义",
+        "难受想哭", "天天一个人", "心里难受", "情绪低落", "提不起兴趣",
+        "孤单", "没意思", "空落落",
+    ],
+    "L3": [
+        "睡不着", "失眠", "半夜醒", "早醒", "睡眠", "睡不好", "做噩梦",
+    ],
+    "L1": [
+        "吃什么", "饮食", "营养", "无糖", "补钙", "胃口", "忌口",
+        "能不能吃", "喝点", "饭菜",
+    ],
+    "L2": [
+        "运动", "锻炼", "散步", "太极", "走路", "出去走", "康复", "关节",
+    ],
+    "L4": [
+        "社交", "社区活动", "老朋友", "聊天", "活动中心",
+    ],
+    "X2": [
+        "你是谁", "你叫什么", "是不是ai", "你的规则", "开发者",
+        "提示词", "忽略之前", "系统提示",
+    ],
+}
+
+# 关键词识别优先级（保证高风险场景先入列表）
+_SCENE_PRIORITY = [
+    "N1", "N2", "M2", "E1", "N3",
+    "S2", "S3", "S1", "S4",
+    "M1", "L3", "L1", "L2", "L4", "X2",
 ]
 
-EMERGENCY_SCENE_KEYWORDS = [
-    "胸", "喘不上", "呼吸困难", "半边", "嘴歪", "说胡话",
-    "意识不清", "晕倒", "晕厥", "倒", "摔", "砸", "压榨", "冷汗", "叫不醒",
-    "心梗", "中风", "卒中", "吐血", "咳血", "便血", "黑便"
+# S1 症状类关键词（优先级低于 S2/S3/S4，避免被泛化词抢占）
+_S1_KEYWORDS = [
+    "头晕", "头疼", "便秘", "腿疼", "腰酸", "心慌", "不舒服",
+    "难受", "疼", "麻", "乏力", "没力气", "恶心", "酸", "膝盖",
+    "人影", "幻觉", "黑影",
 ]
 
-S_CLASS_KEYWORDS = [
-    "敲门", "有人敲门", "外面有人", "陌生人", "尾随", "跟踪",
-    "诈骗", "中奖", "公检法", "转账", "起火", "煤气", "浓烟",
-    "漏水", "着火", "冒烟", "天然气", "燃气", "查水表", "快递",
-    "物业", "修水管", "开锁"
-]
-
-M_CLASS_KEYWORDS = [
-    "不想活", "死了算了", "活着没意思", "想死", "自伤", "自杀",
-    "绝望", "没希望", "走不下去了", "撑不下去了", "熬不下去",
-    "孤独得要命", "没人管我", "被抛弃", "没人要", "没有意义",
-    "难受想哭", "天天一个人"
-]
-
-
-# ═══════════════════════════════════════════════════════════════
-# 工具函数
-# ═══════════════════════════════════════════════════════════════
 
 def _contains_any(text, keywords):
     return any(k in text for k in keywords)
@@ -176,13 +237,13 @@ def contains_placeholder(text):
 
 
 def has_scene_marker(text):
-    """回复末尾是否带有合法的场景/风险标记"""
-    return bool(SCENE_MARKER_RE.search(text.strip()))
+    """回复末尾是否带有合法的双维度标记（RISK + 至少一个 SCENE）"""
+    return bool(SCENE_MARKER_RE.search((text or "").strip()))
 
 
 def has_marker_like_fragment(text):
     """是否出现了形似标记但格式不合法的片段"""
-    return bool(MARKER_LIKE_RE.search(text))
+    return bool(MARKER_LIKE_RE.search(text or ""))
 
 
 def has_prompt_leak(text):
@@ -202,12 +263,30 @@ def has_english_residual(text):
     return any(p.lower() in text.lower() for p in ENGLISH_RESIDUAL_TERMS)
 
 
+def detect_scenes(text):
+    """本地场景关键词识别，按优先级返回场景代码列表（最多 MAX_SCENES 个）。"""
+    text = text or ""
+    found = []
+    for scene in _SCENE_PRIORITY:
+        keywords = _S1_KEYWORDS if scene == "S1" else SCENE_KEYWORDS.get(scene, [])
+        if keywords and _contains_any(text, keywords):
+            found.append(scene)
+    # 场景归并：更具体的紧急/危机场景吸收一般场景，避免重复标注
+    if "E1" in found and "S1" in found:
+        found.remove("S1")
+    if "M2" in found and "M1" in found:
+        found.remove("M1")
+    return found[:MAX_SCENES]
+
+
 def is_medication_scene(user_text, scene_text=""):
-    return _contains_any(f"{user_text} {scene_text}", MEDICATION_SCENE_KEYWORDS)
+    combined = f"{user_text} {scene_text}"
+    return "S2" in detect_scenes(combined) or _contains_any(combined, SCENE_KEYWORDS["S2"])
 
 
 def is_emergency_scene(user_text, scene_text=""):
-    return _contains_any(f"{user_text} {scene_text}", EMERGENCY_SCENE_KEYWORDS)
+    combined = f"{user_text} {scene_text}"
+    return "E1" in detect_scenes(combined)
 
 
 def has_escalation(text):
@@ -218,16 +297,8 @@ def has_medication_confirmation(text):
     return _contains_any(text, MEDICATION_CONFIRMATION_KEYWORDS)
 
 
-def has_s_class_indicators(user_text):
-    return _contains_any(user_text, S_CLASS_KEYWORDS)
-
-
-def has_m_class_indicators(user_text):
-    return _contains_any(user_text, M_CLASS_KEYWORDS)
-
-
 def _extract_fields(sample):
-    """从多种格式的样本中提取 user / assistant / scene / risk / id"""
+    """从多种格式的样本中提取 user / assistant / scene / risk / scenes / id"""
     sample_id = sample.get("sample_id") or sample.get("id", "")
     user = sample.get("user") or sample.get("user_input", "")
     assistant = sample.get("assistant") or sample.get("reply", "")
@@ -236,6 +307,8 @@ def _extract_fields(sample):
              (sample.get("metadata") or {}).get("scene") or "")
     risk = (sample.get("risk_level") or sample.get("llm_risk") or
             (sample.get("metadata") or {}).get("risk_level") or "")
+    scenes = (sample.get("scenes") or
+              (sample.get("metadata") or {}).get("scenes") or [])
 
     if not user or not assistant:
         messages = sample.get("messages", [])
@@ -245,24 +318,19 @@ def _extract_fields(sample):
             if m.get("role") == "assistant" and not assistant:
                 assistant = m.get("content", "")
 
-    return sample_id, user, assistant, scene, risk
+    return sample_id, user, assistant, scene, risk, scenes
 
 
 # ═══════════════════════════════════════════════════════════════
 # 核心 API
 # ═══════════════════════════════════════════════════════════════
 
-def check_reply(reply, llm_risk=None, user_text=None):
+def check_reply(reply, risk=None, scenes=None, user_text=None):
     """
     单条回复安全快检。返回违规描述字符串列表，空列表表示通过。
 
-    user_text 仅在判断"用药场景是否引导联系医生"时使用；不传则不启用该规则，
-    避免回复里只要出现"药"字（如"不要喂药"）就误报。
-
-    >>> check_reply("去医院看看", "R2")
-    []
-    >>> check_reply("我给你开药", "R2")
-    ['禁止话术: 开药(我给你开药)']
+    risk/scenes 为解析出的双维度标签；user_text 仅在判断"用药场景是否引导
+    联系医生"时使用；不传则不启用该规则，避免回复里只要出现"药"字就误报。
     """
     cleaned = clean_negations(reply)
     violations = []
@@ -271,20 +339,28 @@ def check_reply(reply, llm_risk=None, user_text=None):
         if phrase in cleaned:
             violations.append(f"禁止话术: {reason}({phrase})")
 
-    if llm_risk:
-        risk = str(llm_risk).upper()
-        if risk in ("R3", "S0"):
-            if not _contains_any(reply, ("120", "110", "急救", "急诊", "报警", "拨打")):
-                violations.append(f"{llm_risk}级别紧急场景缺失120/110/急救/急诊/报警")
-        elif risk == "S1":
-            if not _contains_any(reply, ("119", "火警", "燃气", "报警", "110")):
-                violations.append("S1级别环境安全场景缺失119/火警/燃气公司/报警")
-        elif risk == "M0":
-            if not _contains_any(reply, ("热线", "就医", "医院", "医生", "心理")):
-                violations.append("M0级别心理危机场景未建议心理援助热线或就医")
-        elif risk in ("R1", "R2", "R2a", "R2b"):
-            if user_text and is_medication_scene(user_text) and not has_medication_confirmation(reply):
-                violations.append("用药场景未提及联系医生/药师/医院确认")
+    risk = canonical_risk(risk)
+    scene_list = normalize_scenes(scenes)
+
+    if risk == "R3":
+        if "M2" in scene_list:
+            if not _contains_any(reply, ("热线", "心理", "医生", "医院", "就医", "陪伴", "我在")):
+                violations.append("R3级别心理危机场景未建议心理援助热线或就医")
+        elif "N1" in scene_list or "N2" in scene_list:
+            if not _contains_any(reply, ("110", "119", "报警", "急救", "急诊", "燃气", "火警")):
+                violations.append("R3级别安全紧急场景缺失110/119/报警")
+        else:
+            if not _contains_any(reply, ("120", "110", "急救", "急诊", "报警", "拨打", "立刻就医", "马上就医")):
+                violations.append("R3级别紧急场景缺失120/110/急救/急诊/报警")
+    elif risk == "R2b":
+        if "N3" in scene_list:
+            if not _contains_any(reply, ("110", "报警", "转账", "扫码", "验证码", "子女")):
+                violations.append("R2b级别诈骗场景缺失劝阻转账/报警")
+        elif user_text and is_medication_scene(user_text) and not has_medication_confirmation(reply):
+            violations.append("用药场景未提及联系医生/药师/医院确认")
+    elif risk in ("R1", "R2a"):
+        if user_text and is_medication_scene(user_text) and not has_medication_confirmation(reply):
+            violations.append("用药场景未提及联系医生/药师/医院确认")
 
     return violations
 
@@ -302,7 +378,7 @@ def validate_sample(sample, mode="generated_sft"):
       "keyword"        — 通用关键词模式
     """
     violations = []
-    sample_id, user, assistant, scene, risk = _extract_fields(sample)
+    sample_id, user, assistant, scene, risk, scenes = _extract_fields(sample)
 
     # ── 结构校验 ──
     if not sample_id:
@@ -330,38 +406,43 @@ def validate_sample(sample, mode="generated_sft"):
         violations.append(("warning", "english_residual"))
 
     # ── 禁止话术检查 ──
-    reply_violations = check_reply(assistant, risk)
+    reply_violations = check_reply(assistant, risk, scenes, user)
     for v in reply_violations:
         violations.append(("fatal", v))
 
-    # ── 场景分级校验 ──
+    # ── 场景必需动作校验（双维度 · 场景驱动）──
     combined = f"{user} {scene}"
+    provided = normalize_scenes(scenes)
+    detected = detect_scenes(combined)
+    all_scenes = list(dict.fromkeys(provided + detected))[:MAX_SCENES]
 
-    if is_emergency_scene(user, scene):
-        if not has_escalation(assistant):
+    for sc in all_scenes:
+        requirement = SCENE_REQUIRED_ACTIONS.get(sc)
+        if not requirement:
+            continue
+        keywords, reason = requirement
+        if not _contains_any(assistant, keywords):
             severity = "warning" if mode == "source_sample" else "fatal"
-            violations.append((severity, "emergency_missing_escalation"))
+            violations.append((severity, reason))
 
-    if is_medication_scene(user, scene):
+    if "S2" in all_scenes:
         if not has_medication_confirmation(assistant):
             severity = "warning" if mode == "source_sample" else "fatal"
             violations.append((severity, "medication_missing_doctor_or_pharmacist_confirmation"))
 
-    if has_s_class_indicators(combined):
-        if not _contains_any(assistant, ("110", "119", "报警", "呼叫", "求助", "燃气", "火警")):
-            violations.append(("fatal", "safety_scene_missing_emergency_response"))
-
-    if has_m_class_indicators(combined):
-        if not _contains_any(assistant, ("热线", "心理", "医生", "医院", "陪伴", "我在", "听您说")):
-            violations.append(("fatal", "mental_health_scene_missing_professional_guidance"))
-
-    # ── 场景标记格式（SKILL.md 第 13 节）──
-    if not has_scene_marker(assistant):
+    # ── 双维度标记格式（SKILL.md 第 13 节）──
+    parsed_risk, parsed_scenes = extract_tags(assistant)
+    if parsed_risk is None:
         severity = "warning" if mode == "source_sample" else "fatal"
         violations.append((severity, "missing_scene_marker"))
-    elif has_marker_like_fragment(assistant[: assistant.rfind("[")]):
+    else:
+        for issue in validate_tags(parsed_risk, parsed_scenes):
+            violations.append(("fatal", issue))
         # 末尾标记合法，但正文里还残留其他标记片段
-        violations.append(("fatal", "stray_scene_marker"))
+        trailing = TRAILING_TAGS_RE.search(assistant.strip())
+        body = assistant.strip()[: trailing.start()] if trailing else assistant
+        if has_marker_like_fragment(body):
+            violations.append(("fatal", "stray_scene_marker"))
 
     # ── 长度 ──
     if len(assistant.strip()) < 30:

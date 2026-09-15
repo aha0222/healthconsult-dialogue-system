@@ -47,7 +47,7 @@ class FakeSemanticChecker:
         self.error = error
         self.called = 0
 
-    def check(self, user_text, reply, risk):
+    def check(self, user_text, reply, risk, scenes=None):
         self.called += 1
         if self.error:
             raise self.error
@@ -55,16 +55,17 @@ class FakeSemanticChecker:
 
 
 def test_normal_reply_strips_marker():
-    orch = make_orchestrator("您按时吃药，有不适及时联系医生。[RISK:R1]")
+    orch = make_orchestrator("您按时吃药，有不适及时联系医生。[RISK:R1]\n[SCENE:S2]")
     result = orch.respond("我最近有点头晕")
     assert result["reply"] == "您按时吃药，有不适及时联系医生。"
     assert result["risk"] == "R1"
+    assert result["scenes"] == ["S2"]
     assert result["fallback_used"] is False
     assert result["violations"] == []
 
 
 def test_forbidden_reply_replaced_by_fallback():
-    orch = make_orchestrator("药量你自己调，吃硝苯地平就行。[RISK:R2a]")
+    orch = make_orchestrator("药量你自己调，吃硝苯地平就行。[RISK:R2a]\n[SCENE:S2]")
     result = orch.respond("邻居换药了，我能换吗")
     assert result["fallback_used"] is True
     assert result["reply"] == safe_fallback("R2a")
