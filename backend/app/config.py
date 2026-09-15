@@ -12,9 +12,9 @@
     LOG_LEVEL             日志级别，默认 INFO
     LOG_FORMAT            日志格式 json / plain，默认 plain
     SEMANTIC_CHECK        是否开启高风险语义复核（1/true 开启），默认开启
-    SEMANTIC_CHECK_RISKS  需要语义复核的风险等级，逗号分隔，默认 R3,M0,S0
+    SEMANTIC_CHECK_RISKS  需要语义复核的风险等级，逗号分隔，默认 R3,R2b
     SEMANTIC_CHECK_FALLBACK 语义复核判定不安全时是否替换为安全话术，默认开启
-    ALERT_RISKS           触发告警的风险等级，逗号分隔，默认 R3,M0,S0
+    ALERT_RISKS           触发告警的风险等级，逗号分隔，默认 R3,R2b
     ALERT_WEBHOOK_URL     告警 webhook 地址（为空则仅记录日志）
     SUMMARY_ENABLED       是否开启长会话滚动摘要与画像（默认开启）
     SUMMARY_THRESHOLD     会话消息数超过该值才触发摘要，默认 20
@@ -46,8 +46,8 @@ except ImportError:  # pragma: no cover
     pass
 
 DEFAULT_DB_PATH = REPO_ROOT / "backend" / "data" / "sessions.db"
-DEFAULT_SEMANTIC_RISKS = "R3,M0,S0"
-DEFAULT_ALERT_RISKS = "R3,M0,S0"
+DEFAULT_SEMANTIC_RISKS = "R3,R2b"
+DEFAULT_ALERT_RISKS = "R3,R2b"
 
 
 def _split_origins(raw: str):

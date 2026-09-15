@@ -39,13 +39,13 @@ from backend.app.safety.safety_checker import (
 
 def user_from_any(row):
     """从多种格式样本中提取 user 内容"""
-    _, user, _, _, _ = _extract_fields(row)
+    _, user, _, _, _, _ = _extract_fields(row)
     return user
 
 
 def assistant_from_any(row):
     """从多种格式样本中提取 assistant 内容"""
-    _, _, assistant, _, _ = _extract_fields(row)
+    _, _, assistant, _, _, _ = _extract_fields(row)
     return assistant
 
 

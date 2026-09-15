@@ -33,6 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.app.safety.safety_checker import check_reply
 from backend.app.dialogue.markers import append_marker
+from backend.app.dialogue.taxonomy import extract_tags, strip_tags
 
 
 def load_skill():
@@ -129,34 +130,23 @@ def api_mode(api_key, base_url, model, single_ask=None):
         except Exception as e:
             return f"[API 错误] {str(e)}", "?"
 
-        # 从回复中提取场景/风险标签（末尾优先，任意位置兜底）
-        tag_pattern = re.compile(
-            r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]\s*$'
-        )
-        m = tag_pattern.search(raw_reply)
-        if not m:
-            tag_pattern_any = re.compile(
-                r'\[(?:SITUATION:(S[0-2])|MENTAL:(M[0-1])|RISK:(R[0-3][ab]?)|OTHER:(X))\]'
-            )
-            m = tag_pattern_any.search(raw_reply)
-        if m:
-            llm_risk = m.group(1) or m.group(2) or m.group(3) or m.group(4)
-            reply = (raw_reply[:m.start()] + raw_reply[m.end():]).strip()
-        else:
-            llm_risk = "?"
-            reply = raw_reply
+        # 从回复中提取双维度标签（风险唯一 + 场景可多个）
+        llm_risk, scenes = extract_tags(raw_reply)
+        if llm_risk is None and not scenes:
+            llm_risk, scenes = "?", []
+        reply = strip_tags(raw_reply)
 
         # 安全自检
-        violations = check_reply(reply, llm_risk, user_input)
+        violations = check_reply(reply, llm_risk, scenes, user_input)
         if violations:
             print(f"\n[质检警告] {'; '.join(violations)}")
 
-        return reply, llm_risk
+        return reply, llm_risk, scenes
 
     if single_ask:
-        reply, risk = chat_one(single_ask)
+        reply, risk, scenes = chat_one(single_ask)
         print(f"\n老人说：{single_ask}")
-        print(f"LLM判定风险：{risk}")
+        print(f"LLM判定风险：{risk}  场景：{','.join(scenes) or '-'}")
         print(f"\n小暖说：\n{reply}")
         return
 
@@ -173,12 +163,12 @@ def api_mode(api_key, base_url, model, single_ask=None):
             print("小暖：再见，祝您健康，有事随时找我~")
             break
 
-        reply, risk = chat_one(user_input)
-        print(f"\n[系统] LLM判定风险={risk}")
+        reply, risk, scenes = chat_one(user_input)
+        print(f"\n[系统] LLM判定风险={risk}  场景={','.join(scenes) or '-'}")
         print(f"\n小暖说：\n{reply}")
 
         messages.append({"role": "user", "content": user_input})
-        messages.append({"role": "assistant", "content": append_marker(reply, risk)})
+        messages.append({"role": "assistant", "content": append_marker(reply, risk, scenes)})
 
 
 # ── 主入口 ────────────────────────────────────────────
