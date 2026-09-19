@@ -6,15 +6,16 @@
 
 | 路径 | 作用 |
 |------|------|
-| `index.html` | 四版人格测试报告页（适合汇报） |
+| `index.html` | 四版人格选型评测报告页（三法交叉，适合汇报） |
 | `chat.html` | 在线对话界面 |
+| `data/personality_evaluation.js` | 报告页数据（由 `tools/export_persona_report_data.py` 自动生成，勿手改） |
 | `styles/tokens.css` | 设计令牌：颜色 / 字体 / 间距 / 圆角 / 阴影 / 动效 |
 | `styles/base.css` | 重置、排版、无障碍基类、暖色环境光与颗粒 |
 | `styles/components.css` | 通用组件：按钮、卡片、徽章、表单、弹窗、开关、加载点 |
 | `styles/chat.css` | 对话页布局 |
 | `styles/report.css` | 报告页布局 |
 | `scripts/chat.js` | 对话页逻辑（流式对话 / 会话 / 语音 / 适老化设置） |
-| `scripts/report.js` | 报告页数据与渲染 |
+| `scripts/report.js` | 报告页渲染（读 `data/personality_evaluation.js`，不含硬编码评分） |
 | `assets/` | 优化后的 WebP 素材与图标 |
 
 ## 设计方向
@@ -26,6 +27,9 @@
 ## 使用
 
 直接用浏览器打开 `index.html` 或 `chat.html`。
+
+`index.html` 的评测数据来自 `data/personality_evaluation.js`。重跑评测后，
+在仓库根目录执行 `python tools/export_persona_report_data.py` 刷新即可。
 
 `chat.html` 通过 HTTP 调用 `backend/` 的 API，**浏览器不接触大模型 API Key**（密钥保存在服务端环境变量）。
 页面里填写的「后端访问密钥」是 `BACKEND_API_KEY`（`X-API-Key`），仅在部署方开启鉴权时需要。

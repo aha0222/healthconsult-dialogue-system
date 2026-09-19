@@ -90,6 +90,27 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 - `backend/app/evaluation.py` + `tools/eval_risk.py`：固定评测集 `backend/tests/eval/risk_cases.jsonl` 上给风险分级器打分；`--mode local` 用本地兜底分级器（确定性，CI 可跑），`--mode llm` 走真实编排链路。
 - SFT 迭代：`generate_candidates` → `clean_candidates` → `validate_outputs` → `generate_manual_review_list` → 版本化入库（现为 `v0.2.3`）。
 
+## 人格选型评测
+
+默认人格（温婉邻居型）由离线评测确定，完整报告见 `docs/personality_evaluation_report.md`。
+评测不进入运行时链路，但为 `dialogue/prompt.py` 的 `DEFAULT_PERSONALITY` 提供依据。
+
+- **生成**：`tools/generate_personality_responses.py` 从 `SKILL.md` 剥离人格小节得到中立安全骨架，
+  再为四版各自附加等价人格定义，消除「基础人格写死」导致的对照不公平。
+- **评价**：`tools/score_replies.py`（五维量表盲评）、`tools/build_manual_review.py`（人工同量表抽检）、
+  `tools/rank_personas.py`（场景内强制排序）。量表唯一定义在 `tools/_rubric.py`，人工评审页与大模型评委共用，
+  避免两套标准漂移。
+- **统计**：`tools/analyze_scores.py`（bootstrap 置信区间 + 区组置换检验 + 量表效度检查）、
+  `tools/analyze_agreement.py`（人工 vs 大模型偏差与相关）。
+- **回归**：`backend/tests/test_persona_evaluation.py` 对已入库的原始数据断言跨方法不变量，
+  防止后续改人格或改 SKILL.md 时结论被静默推翻。
+- **展示**：`tools/export_persona_report_data.py` 把聚合结果导出为
+  `frontend/data/personality_evaluation.js`（挂到 `window` 的 JS 对象，规避 file:// 下
+  `fetch` 本地 JSON 的 CORS 限制），`frontend/index.html` 只做渲染，不含硬编码评分。
+
+原始数据（344 条回复、344 条评分、86 轮排序、87 条人工评分）在 `tests/results/`，
+人工评审材料在 `skills/healthconsult-assistant-skill/examples/manual_review/`。
+
 ## 性能与成本
 
 - **预算**：`MAX_MESSAGE_CHARS` / `MAX_HISTORY_ITEMS` 在请求层校验；`MAX_TOKENS` / `TEMPERATURE` 控制生成成本；每次调用记录 `llm_usage`。

@@ -20,7 +20,7 @@ jobs:
           python -m pip install -r backend/requirements.txt
           python -m pip install -r tools/requirements.txt
 
-      - name: Backend tests (safety checker + orchestrator + API + redline cases)
+      - name: Backend tests (safety checker + orchestrator + API + redline cases + persona evaluation)
         run: python -m pytest backend/tests -v
 
       - name: Risk classification baseline
