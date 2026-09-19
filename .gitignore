@@ -36,3 +36,7 @@ skills/healthconsult-assistant-skill/examples/generated_candidates_*.jsonl
 skills/healthconsult-assistant-skill/examples/*_bad_cases.csv
 tests/results/batch_results_*.json
 tests/results/batch_report_*.md
+
+# 人格评测交付包原始副本（内容已归位到 tools/ docs/ tests/results/ examples/）
+人格评测/
+人格评测(1).zip
