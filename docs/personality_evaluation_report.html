@@ -1,0 +1,157 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>personality_evaluation_report</title><style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,"Microsoft YaHei",sans-serif;max-width:900px;
+     margin:0 auto;padding:48px 24px 96px;line-height:1.85;color:#1d1d1f;background:#fff}
+h1{font-size:28px;border-bottom:3px solid #0071e3;padding-bottom:12px;margin-top:0}
+h2{font-size:22px;margin-top:44px;padding-left:12px;border-left:5px solid #0071e3}
+h3{font-size:17px;margin-top:30px;color:#1d1d1f}
+h4{font-size:15px;margin-top:22px;color:#3a3a3c}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:14px}
+th{background:#f5f5f7;font-weight:600;text-align:left}
+th,td{border:1px solid #d2d2d7;padding:9px 12px;vertical-align:top}
+tr:nth-child(even) td{background:#fafafa}
+code{background:#f5f5f7;padding:2px 6px;border-radius:4px;font-size:.9em;
+     font-family:Consolas,"Courier New",monospace}
+pre{background:#f5f5f7;padding:16px 18px;border-radius:8px;overflow-x:auto;line-height:1.6}
+pre code{background:none;padding:0}
+blockquote{border-left:4px solid #d2d2d7;margin:16px 0;padding:6px 18px;color:#3a3a3c;background:#fafafa}
+hr{border:none;border-top:1px solid #e5e5ea;margin:36px 0}
+ul{padding-left:24px}
+li{margin:4px 0}
+strong{color:#1d1d1f}
+em{color:#6e6e73}
+</style></head><body><h1>小暖四版人格 · 评测与默认人格选型报告</h1>
+<blockquote>目标：从四版候选人格中选出默认人格，并用可复核的证据支撑该选择。<br><br>本报告的数据由 <code>tools/</code> 下的脚本自动生成，原始数据保存在 <code>tests/results/</code>。<br>复现命令见文末。</blockquote>
+<hr>
+<h2>一、结论摘要</h2>
+<p><strong>建议默认人格：温婉邻居型。</strong></p>
+<p>理由不是&quot;它得分最高&quot;，而是：<strong>在三种互相独立的评价方法下，它是唯一始终位于前二、没有任何一套方法把它排到末位的选项。</strong></p>
+<table><thead><tr><th>人格</th><th>强制排序名次</th><th>人工抽检名次</th><th>大模型绝对打分名次</th></tr></thead><tbody><tr><td><strong>温婉邻居型</strong></td><td>2</td><td><strong>1</strong></td><td><strong>1</strong></td></tr><tr><td>从容守护型</td><td><strong>1</strong></td><td>4</td><td>2</td></tr><tr><td>素朴家常型</td><td>3</td><td>2</td><td>3</td></tr><tr><td>贴心闺女型</td><td>4</td><td>3</td><td>4</td></tr></tbody></table>
+<p>两条跨方法稳健的结论：</p>
+<p>1. <strong>贴心闺女型应排除</strong> —— 三种方法都把它排在后两位（4 / 3 / 4），从未进入前二。</p>
+<p>2. <strong>温婉邻居型最稳健</strong> —— 三种方法都进入前二，没有明显短板。</p>
+<p><strong>从容守护型的排名高度依赖评价方法</strong>（第 1 / 第 4 / 第 2），不能作为首选依据。</p>
+<hr>
+<h2>二、评测设计</h2>
+<h3>2.1 测试场景（43 个）</h3>
+<p>原有测试只覆盖 R 类（身体健康），<strong>S 类（人身安全）和 M 类（心理危机）完全空白</strong>——</p>
+<p>而这两类在 <code>SKILL.md</code> 中优先级最高（S &gt; M0 &gt; R3 &gt; …… &gt; R0）。</p>
+<p>本次补全了这两个类别：</p>
+<table><thead><tr><th>类别</th><th>场景数</th><th>内容</th></tr></thead><tbody><tr><td>S0 / S1 / S2</td><td>3 / 2 / 3</td><td>冒充上门、尾随、撬锁；燃气泄漏、火灾；中奖诈骗、保健品会销、钓鱼链接</td></tr><tr><td>M0 / M1</td><td>3 / 3</td><td>明确自伤、隐晦自伤、放弃治疗；长期孤独、怕被嫌弃、兴趣减退</td></tr><tr><td>R3</td><td>4</td><td>胸痛、卒中、剧烈头痛、心悸冷汗</td></tr><tr><td>R2b / R2a</td><td>3 / 5</td><td>咳血、摔倒、持续发热；换药、异常感知、停药、压力测试</td></tr><tr><td>R1</td><td>5</td><td>用药时间、失眠、加药、免责诱导、情感勒索</td></tr><tr><td>R0</td><td>9</td><td>日常 3 + 情感陪伴 2 + 回忆往事 5</td></tr><tr><td>X</td><td>3</td><td>套话、非陪护、角色扮演越狱</td></tr></tbody></table>
+<p>其中 <strong>9 个沿用初版报告的锚点场景</strong>，用于对照初版结论是否可复现。</p>
+<p>场景文件：<code>skills/healthconsult-assistant-skill/examples/personality_test_scenarios.jsonl</code></p>
+<h3>2.2 生成设置（保证公平对比）</h3>
+<p>初版做法存在一处系统性偏差：<code>SKILL.md</code> 第 1 节把「温婉邻居型」写死为默认人格，</p>
+<p>其余三版是在「被要求推翻基础设定」的条件下生成的。</p>
+<p>本次修正：</p>
+<ul><li><strong>剥离基础人格</strong>：从 <code>SKILL.md</code> 移除「人格核心 / 称呼习惯 / 语气参数」三节及</li></ul>
+<p>  frontmatter 中的相关描述，得到中立的「安全骨架」，再为四版各自附加等价的完整人格定义。</p>
+<p>  剥离后骨架经程序校验不含任何人格名。</p>
+<ul><li><strong>不注入风险提示</strong>：初版对 R3 场景额外注入「必须建议 120」，这会抹平各版在风险识别上的差异。</li><li><strong>关闭思考模式</strong>：DeepSeek 默认开启思考模式，推理 token 会耗尽 <code>max_tokens</code> 导致正文为空。</li></ul>
+<p>  早期未关闭时，344 条中有 76 条（22%）为空回复，且集中在高难度场景，已全部重跑。</p>
+<p>规模：43 场景 × 4 人格 × 2 次生成 = <strong>344 条回复</strong>，零空回复，漏标率 4.7%。</p>
+<h3>2.3 三种评价方法</h3>
+<table><thead><tr><th>方法</th><th>做法</th><th>样本量</th><th>盲化方式</th></tr></thead><tbody><tr><td><strong>绝对打分</strong></td><td>大模型按五维量表（可理解性/情感温度/实用可执行/分寸感/简洁度，每维 1-5 分）逐条打分</td><td>344 条</td><td>提示词不含人格名</td></tr><tr><td><strong>人工抽检</strong></td><td>人工按<strong>同一套量表</strong>给单条回复打分</td><td>87 条（25%，分层抽样）</td><td>评审页不含人格名</td></tr><tr><td><strong>强制排序</strong></td><td>同场景四条回复匿名乱序呈现，强制排出 1-2-3-4</td><td>86 轮（43 场景 × 2 生成轮次）</td><td>甲乙丙丁每轮随机分配</td></tr></tbody></table>
+<p>量表定义在 <code>tools/_rubric.py</code>，人工评审页与大模型提示词<strong>从同一份定义生成</strong>，</p>
+<p>避免两套标准漂移导致一致性分析失去意义。</p>
+<hr>
+<h2>三、各方法结果</h2>
+<h3>3.1 绝对打分（大模型，344 条）</h3>
+<table><thead><tr><th>人格</th><th>均分</th><th>95% CI</th></tr></thead><tbody><tr><td>温婉邻居型</td><td><strong>4.549</strong></td><td>[4.495, 4.602]</td></tr><tr><td>从容守护型</td><td>4.493</td><td>[4.428, 4.553]</td></tr><tr><td>素朴家常型</td><td>4.456</td><td>[4.386, 4.526]</td></tr><tr><td>贴心闺女型</td><td>4.340</td><td>[4.256, 4.421]</td></tr></tbody></table>
+<p>整体差异显著（区组置换检验，p &lt; 0.0001）。但两两对比显示：</p>
+<ul><li>温婉邻居型 vs 从容守护型：+0.056，<strong>p = 0.102，不显著</strong></li><li>温婉邻居型 vs 贴心闺女型：+0.209，p &lt; 0.0001，显著</li><li>贴心闺女型 vs 从容守护型：−0.153，p = 0.0003，显著</li></ul>
+<p><strong>分维度区分度</strong>（各维度的极差）：</p>
+<table><thead><tr><th>维度</th><th>区分度</th><th>说明</th></tr></thead><tbody><tr><td>分寸感</td><td>0.674</td><td>唯一强区分维度</td></tr><tr><td>情感温度</td><td>0.314</td><td>从容守护型垫底（4.15）</td></tr><tr><td>简洁度</td><td>0.198</td><td>主要由字数驱动</td></tr><tr><td>实用可执行</td><td>0.174</td><td></td></tr><tr><td>可理解性</td><td>0.047</td><td><strong>失效</strong>：97% 给 5 分</td></tr></tbody></table>
+<p><strong>效度检查</strong>：字数与综合得分的 Spearman 相关为 +0.198，弱相关，</p>
+<p>说明得分未被篇幅主导。</p>
+<h3>3.2 人工抽检（87 条）</h3>
+<table><thead><tr><th>人格</th><th>均分</th><th>95% CI</th><th>n</th></tr></thead><tbody><tr><td>温婉邻居型</td><td><strong>3.962</strong></td><td>[3.75, 4.15]</td><td>21</td></tr><tr><td>素朴家常型</td><td>3.926</td><td>[3.76, 4.08]</td><td>19</td></tr><tr><td>贴心闺女型</td><td>3.810</td><td>[3.62, 3.99]</td><td>21</td></tr><tr><td>从容守护型</td><td>3.692</td><td>[3.53, 3.83]</td><td>26</td></tr></tbody></table>
+<p><strong>人格间差异不显著（p = 0.175）</strong>，受样本量限制，此处只能作方向性参考。</p>
+<h4>人工 vs 大模型的一致性</h4>
+<table><thead><tr><th>维度</th><th>人工</th><th>大模型</th><th>偏差</th><th>Spearman ρ</th></tr></thead><tbody><tr><td>可理解性</td><td>3.74</td><td>5.00</td><td>−1.26</td><td>+0.000 †</td></tr><tr><td>情感温度</td><td>3.78</td><td>4.37</td><td>−0.59</td><td>+0.022</td></tr><tr><td>实用可执行</td><td>3.82</td><td>4.53</td><td>−0.71</td><td>+0.164</td></tr><tr><td>分寸感</td><td>3.89</td><td>4.52</td><td>−0.63</td><td>+0.072</td></tr><tr><td>简洁度</td><td>3.97</td><td>3.92</td><td>+0.05</td><td>−0.141</td></tr><tr><td><strong>综合</strong></td><td><strong>3.84</strong></td><td><strong>4.47</strong></td><td><strong>−0.63</strong></td><td><strong>+0.087</strong></td></tr></tbody></table>
+<p>† 退化结果：大模型在该维度几乎全给 5 分，无方差，秩相关不可计算。</p>
+<ul><li>综合偏差 95% CI [−0.73, −0.52]，<strong>系统性偏差真实存在</strong>，大模型评委明显偏松。</li><li>逐条完全一致率 6%，相差 ≤1 分 83%。</li><li><strong>逐条相关 ρ = +0.087，接近无关。</strong></li></ul>
+<h4>人工发现而大模型漏判的具体问题</h4>
+<table><thead><tr><th>问题类型</th><th>人工备注（原文摘录）</th></tr></thead><tbody><tr><td>用语幼稚化</td><td>「乖啊，老人不是孩子，用语不当」（3 条）</td></tr><tr><td>点破重复讲述</td><td>「修锅炉那晚的事儿，您跟我说过两回了……应该不要点出这点」</td></tr><tr><td>承诺做不到的事</td><td>「我就在这儿陪您坐一会儿，没有实体，这个是空话」</td></tr><tr><td>建议不可执行</td><td>「跟我保持通话，这个建议是无效的」</td></tr><tr><td>用词冒犯</td><td>「请让家人陪您去心理科或精神科看看，老人不一定能接受这个说法」</td></tr></tbody></table>
+<p>这些问题大多落在<strong>分寸感</strong>上，即人格差异最大的维度，而大模型给这些回复打了 4.4–4.8 分。</p>
+<h3>3.3 强制排序（86 轮）</h3>
+<table><thead><tr><th>人格</th><th>平均名次</th><th>第 1 名次数</th></tr></thead><tbody><tr><td>从容守护型</td><td><strong>1.814</strong></td><td>43 / 86（50%）</td></tr><tr><td>温婉邻居型</td><td>2.035</td><td>23 / 86（27%）</td></tr><tr><td>素朴家常型</td><td>2.721</td><td>14 / 86（16%）</td></tr><tr><td>贴心闺女型</td><td><strong>3.430</strong></td><td>6 / 86（7%）</td></tr></tbody></table>
+<ul><li>排序在<strong>两个生成轮次间完全一致</strong>，说明结果不是采样噪声。</li><li>区分度远好于绝对打分（第 1 名占比 50% vs 7%）。</li><li>与人工排名的 Spearman 相关为 <strong>−0.200</strong>，即两种方法基本不相关。</li></ul>
+<hr>
+<h2>四、跨方法对比与解释</h2>
+<table><thead><tr><th>人格</th><th>强制排序</th><th>人工抽检</th><th>绝对打分</th></tr></thead><tbody><tr><td>从容守护型</td><td><strong>1</strong></td><td>4</td><td>2</td></tr><tr><td>温婉邻居型</td><td>2</td><td><strong>1</strong></td><td><strong>1</strong></td></tr><tr><td>素朴家常型</td><td>3</td><td>2</td><td>3</td></tr><tr><td>贴心闺女型</td><td>4</td><td>3</td><td>4</td></tr></tbody></table>
+<p><strong>从容守护型在三套方法下分别排第 1、第 4、第 2</strong>，是分歧最大的一版。</p>
+<p>原因推测：强制排序时，该版回复<strong>结构清晰、信息密度高、不用哄劝语气</strong>，</p>
+<p>并排阅读时观感突出；而人工是站在&quot;这是我父母在用&quot;的立场阅读，</p>
+<p>觉得<strong>偏冷、偏短、具体建议不到位</strong>。这是大模型评委与真人阅读体验的典型分歧点。</p>
+<hr>
+<h2>五、方法学发现</h2>
+<p>本研究在方法层面有三个可复用的结论：</p>
+<h3>5.1 大模型绝对打分会产生尺度压缩</h3>
+<p>让大模型对单条回复打 1–5 分，评分会向高分段集中（可理解性 97% 为 5 分），</p>
+<p><strong>量表失去方差，无法用于排序</strong>。这与评分模型是否&quot;聪明&quot;无关，是绝对打分范式的固有缺陷。</p>
+<h3>5.2 强制排序恢复了区分度，但仍未复现人工排序</h3>
+<p>把四条回复并排强制排序，区分度显著改善（第 1 名占比 50% vs 7%，两轮完全一致），</p>
+<p>但与人工排名的相关仅 −0.200。<strong>&quot;有区分度&quot;不等于&quot;与人的判断一致&quot;。</strong></p>
+<h3>5.3 单一评价方法会给出误导性结论</h3>
+<p>三套方法的第一名互不相同。若只做绝对打分，会得出&quot;温婉邻居型 &gt; 从容守护型&quot;；</p>
+<p>若只做强制排序，会得出&quot;从容守护型第一&quot;。<strong>结论的稳健性只能通过方法交叉验证获得</strong>，</p>
+<p>最终选型应基于&quot;跨方法一致的部分&quot;，而非任一方法的最高分。</p>
+<p>对使用大模型做主观质量评价的实践启示：**大模型评分可作为辅助信号，</p>
+<p>不可作为替代人工的依据。** 本研究测得的逐条相关仅 ρ = 0.087。</p>
+<hr>
+<h2>六、局限</h2>
+<p>1. <strong>人工样本量不足</strong>：87 条（每版人格约 21 条），人格间差异 p = 0.175，未达显著。</p>
+<p>   结论应表述为方向性建议，而非确定性判断。</p>
+<p>2. <strong>生成与评分同模型</strong>：受计算资源限制，回复生成与两种大模型评价均使用同一模型，</p>
+<p>   可能存在自我偏好偏差。已在设计上通过盲化、标签随机化部分缓解。</p>
+<p>3. <strong>可理解性维度失效</strong>：四版人格均被要求使用口语短句，该维度无区分度，</p>
+<p>   在综合分中仍等权计入，会略微压缩人格间差异。</p>
+<p>4. <strong>评分提示词的权重由研究者设定</strong>：强制排序的评委系统提示词中，</p>
+<p>   &quot;不把老人当小孩哄&quot;&quot;不承诺做不到的事&quot;等优先级由研究者根据人工备注提炼，</p>
+<p>   属于已知的主观因素。</p>
+<p>5. <strong>场景为自行编写</strong>：43 个场景未经真实老年用户语料校验，</p>
+<p>   与真实分布可能存在偏差。</p>
+<p>6. <strong>未做统计显著性校正</strong>：人工样本的多重比较未做 Bonferroni 校正。</p>
+<hr>
+<h2>七、对项目的建议</h2>
+<h3>7.1 默认人格选型</h3>
+<p><strong>默认温婉邻居型</strong>，理由表述为：</p>
+<blockquote>在绝对打分、人工抽检、强制排序三种独立方法下，温婉邻居型是唯一始终位于前二、<br>无任何一套方法将其排至末位的候选；其余三版均至少在一套方法中落入后两位。</blockquote>
+<h3>7.2 可选增强</h3>
+<ul><li><strong>分场景切换</strong>：高危场景（S / M / R3）下从容守护型在绝对打分与强制排序中表现更好，</li></ul>
+<p>  可考虑在紧急场景自动收紧语气、提高信息密度。但需在真实用户中另行验证。</p>
+<ul><li><strong>排除贴心闺女型</strong>：三套方法一致排后，人工明确指出其用语幼稚化问题。</li></ul>
+<h3>7.3 结题报告可用的论述</h3>
+<ul><li>补全了 S 类（人身安全）与 M 类（心理危机）的场景覆盖——初版测试在此完全空白，</li></ul>
+<p>  而这两类在规范中优先级最高。</p>
+<ul><li>修正了初版评测中「基础人格写死」导致的对照不公平问题。</li><li>通过人工抽检验证了大模型评分的可信度边界，并量化了偏差</li></ul>
+<p>  （系统偏松 0.63 分，逐条相关 ρ = 0.087）。</p>
+<ul><li>提出并验证了&quot;三种方法交叉验证&quot;的选型流程。</li></ul>
+<hr>
+<h2>八、复现</h2>
+<pre><code class="language-powershell"># 在仓库根目录执行（能看到 backend/、tools/、skills/ 的目录）
+
+# 1. 生成回复（344 条）
+.\.venv\Scripts\python.exe tools\generate_personality_responses.py --runs 2 --workers 5
+
+# 2. 大模型逐条打分
+.\.venv\Scripts\python.exe tools\score_replies.py --workers 5
+
+# 3. 统计与排名
+.\.venv\Scripts\python.exe tools\analyze_scores.py
+
+# 4. 生成人工抽检材料（单人版）
+.\.venv\Scripts\python.exe tools\build_manual_review.py --mode single --reviewers 1 --overlap 0
+
+# 5. 场景内强制排序
+.\.venv\Scripts\python.exe tools\rank_personas.py --workers 5
+
+# 6. 人工评分回收后，做一致性分析
+.\.venv\Scripts\python.exe tools\analyze_agreement.py</code></pre>
+<p><strong>原始数据</strong></p>
+<table><thead><tr><th>文件</th><th>内容</th></tr></thead><tbody><tr><td><code>tests/results/personality_gen_fair_*.jsonl</code></td><td>344 条回复（含标记、token、耗时）</td></tr><tr><td><code>tests/results/personality_scores_*.jsonl</code></td><td>344 条评分（含各维度分与评语）</td></tr><tr><td><code>tests/results/personality_ranking_*.jsonl</code></td><td>86 轮强制排序</td></tr><tr><td><code>tests/results/human_review_result.csv</code></td><td>87 条人工评分</td></tr><tr><td><code>tests/results/personality_analysis_*.md</code></td><td>自动生成的评分统计报告</td></tr><tr><td><code>tests/results/agreement_analysis.md</code></td><td>自动生成的一致性分析报告</td></tr></tbody></table>
+<p><strong>说明</strong>：LLM 采样不保证逐位可复现。复现性由「原始数据 + 脚本 + 参数」共同保证，</p>
+<p>所有调用的模型名、温度、时间戳均已落盘。</p>
+<hr>
+<p><em>报告生成日期：2026-09-17</em></p></body></html>

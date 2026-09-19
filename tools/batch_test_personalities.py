@@ -1,5 +1,13 @@
 """
-小暖四版人格 · 全场景对比测试
+小暖四版人格 · 全场景对比测试（初版方法，已被取代）
+
+⚠️ 本脚本为初版口径，仅作方法演进对照保留，不要用于选型结论。
+已知偏差：SKILL.md 把「温婉邻居型」写死为基础人格，其余三版在「被要求推翻
+系统设定」下生成；R3 场景额外注入「必须建议120」，抹平风险识别差异；
+人格名对评委可见。现行评测请用 tools/generate_personality_responses.py
+（公平口径）+ tools/score_replies.py + tools/rank_personas.py，
+报告见 docs/personality_evaluation_report.md。
+
 使用 DeepSeek API 对 9 个场景跑 4 版人格，生成对比报告。
 
 用法：

@@ -125,6 +125,30 @@ python -m pytest backend/tests -v
 .\.venv\Scripts\python.exe tools/validate_outputs.py --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft
 ```
 
+### 复现人格选型评测
+
+四版人格的默认人格选型见 `docs/personality_evaluation_report.md`：用「大模型绝对打分 + 人工抽检 + 场景内强制排序」三种独立方法交叉验证，结论只取跨方法一致的部分。
+
+```powershell
+# 1. 生成回复（43 场景 × 4 人格 × 2 次 = 344 条）
+.\.venv\Scripts\python.exe tools\generate_personality_responses.py --runs 2 --workers 5
+# 2. 大模型逐条盲评（提示词不含人格名）
+.\.venv\Scripts\python.exe tools\score_replies.py --workers 5
+# 3. 统计与显著性检验（纯标准库，可离线跑）
+.\.venv\Scripts\python.exe tools\analyze_scores.py
+# 4. 场景内强制排序（标签随机分配）
+.\.venv\Scripts\python.exe tools\rank_personas.py --workers 5
+# 5. 导出前端报告数据（纯离线，读 tests/results/）
+.\.venv\Scripts\python.exe tools\export_persona_report_data.py
+```
+
+第 1/2/4 步会真实调用大模型，需要 `DEEPSEEK_API_KEY`。原始数据在 `tests/results/`，
+人工评审材料在 `skills/healthconsult-assistant-skill/examples/manual_review/`。
+第 5 步生成的 `frontend/data/personality_evaluation.js` 供 `frontend/index.html` 读取，
+页面本身不含硬编码评分。改完人格或重跑评测后，重跑第 5 步即可刷新页面。
+旧版 9 场景星级对比（`skills/healthconsult-assistant-skill/docs/personality_test_report.md`）
+为初版方法，已被上述评测取代，仅作方法演进对照保留。
+
 ### 手动启动后端（不用脚本）
 
 后端把 `SKILL.md` 作为 system prompt 调用 LLM，解析场景标记并做安全兜底，供前端调用。支持 SSE 流式、SQLite 会话/审计持久化、API Key 鉴权、按 IP 限流与结构化日志。
