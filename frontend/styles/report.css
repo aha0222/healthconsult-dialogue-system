@@ -546,6 +546,31 @@ table.score tr.total td {
   font-weight: 700;
 }
 
+/* ── 人格卡片：跨方法名次 ─────────────────────────────────── */
+.persona__ranks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.rank-chip {
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--c-cream);
+  color: var(--c-ink-soft);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 方法学发现卡片标题 ───────────────────────────────────── */
+.response__title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+  color: var(--c-primary-strong);
+}
+
 /* ── 页脚 ─────────────────────────────────────────────────── */
 .foot {
   padding: var(--space-7) var(--space-5);

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#E8722C">
-<meta name="description" content="小暖陪护人格蒸馏测试报告 · 四版人格在 9 个真实陪护场景下的实测对比">
-<title>小暖陪护人格蒸馏测试报告</title>
+<meta name="description" content="小暖陪护人格选型评测报告 · 43 场景 × 4 版人格，绝对打分 / 人工抽检 / 强制排序三法交叉验证">
+<title>小暖陪护人格选型评测报告</title>
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/components.css">
@@ -34,8 +34,9 @@
   <a class="nav__brand" href="index.html">小暖 · 健康陪护</a>
   <div class="nav__links">
     <a href="#personalities">人格方案</a>
-    <a href="#scenarios">场景实测</a>
-    <a href="#scores">评分对比</a>
+    <a href="#coverage">场景覆盖</a>
+    <a href="#cross">三法交叉</a>
+    <a href="#dimensions">分维度</a>
     <a href="#conclusion">结论</a>
   </div>
   <a class="btn btn--primary nav__cta" href="chat.html">进入对话</a>
@@ -49,16 +50,16 @@
         <svg class="icon icon--sm" aria-hidden="true"><use href="#i-leaf"></use></svg>
         大创项目 · 健康养老对话系统
       </span>
-      <h1>小暖陪护<span>人格蒸馏</span>测试报告</h1>
+      <h1>小暖陪护<span>人格选型</span>评测报告</h1>
       <p class="hero__lead">
-        围绕“小暖陪护老人”方向，蒸馏出 4 版不同风格的人格，通过 9 个真实陪护场景实测对比，
-        选出最优方案。全部 36 条回复安全质检零违规。
+        43 个陪护场景 × 4 版人格 × 2 次生成 = 344 条回复，用「绝对打分 + 人工抽检 + 强制排序」
+        三种互相独立的方法交叉验证，选出默认人格。结论只取跨方法一致的部分。
       </p>
       <div class="hero__stats">
         <div class="hero__stat"><div class="num tnum">4</div><div class="label">人格版本</div></div>
-        <div class="hero__stat"><div class="num tnum">9</div><div class="label">测试场景</div></div>
-        <div class="hero__stat"><div class="num tnum">36</div><div class="label">实测回复</div></div>
-        <div class="hero__stat"><div class="num">R0–R3</div><div class="label">风险全覆盖</div></div>
+        <div class="hero__stat"><div class="num tnum">43</div><div class="label">测试场景</div></div>
+        <div class="hero__stat"><div class="num tnum">344</div><div class="label">实测回复</div></div>
+        <div class="hero__stat"><div class="num tnum">3</div><div class="label">独立评价方法</div></div>
       </div>
     </div>
     <div class="hero__art">
@@ -72,39 +73,69 @@
   <section class="section reveal" id="personalities">
     <div class="section__head">
       <h2>四版人格速览</h2>
-      <p>同一套医疗安全边界（不诊断 / 不开药 / 不调药 / 急症必 120），差异仅在语气、称呼和话术风格。</p>
+      <p>同一套医疗安全边界（不诊断 / 不开药 / 不调药 / 急症必 120），差异仅在语气、称呼和话术风格。
+        角标为综合绝对打分名次，卡片底部为三种方法下的名次。</p>
     </div>
     <div class="persona-grid" id="personaGrid"></div>
   </section>
 
-  <!-- 场景实测 -->
-  <section class="section reveal" id="scenarios">
+  <!-- 场景覆盖 -->
+  <section class="section reveal" id="coverage">
     <div class="section__head">
-      <h2>场景实测对比</h2>
-      <p>点击每个场景，查看四版人格在同一问题下的回复差异和评价。</p>
+      <h2>场景覆盖</h2>
+      <p>初版只覆盖 R 类（身体健康），本版补全了 S 类（人身安全）与 M 类（心理危机）——
+        这两类在规范中优先级最高，此前完全空白。</p>
     </div>
-    <div class="tabs" role="tablist" aria-label="测试场景" id="scenarioTabs"></div>
-    <div id="scenarioPanel" role="tabpanel" tabindex="0"></div>
+    <div class="table-wrap">
+      <table class="score" id="coverageTable">
+        <caption>43 个场景按风险等级分布</caption>
+      </table>
+    </div>
   </section>
 
-  <!-- 评分对比 -->
-  <section class="section reveal" id="scores">
+  <!-- 三法交叉 -->
+  <section class="section reveal" id="cross">
     <div class="section__head">
-      <h2>综合评分</h2>
-      <p>9 个场景 × 5 分满分 = 45 分总评。温婉邻居型以满分胜出，全部 36 条回复安全质检零违规。</p>
+      <h2>三法交叉验证</h2>
+      <p>三种方法的总体得分（绝对打分满分 5 分）。三套方法的第一名互不相同，
+        所以结论不取任一方法的最高分，而取跨方法一致的部分。</p>
     </div>
 
-    <div class="bars" id="barChart" role="img" aria-label="四版人格总分柱状图，详见下方评分表"></div>
+    <div class="bars" id="barChart" role="img" aria-label="四版人格绝对打分柱状图，详见下方表格"></div>
 
-    <h3 style="margin:var(--space-7) 0 var(--space-4);font-size:var(--fs-lg)">分场景得分明细</h3>
     <div class="table-wrap">
-      <table class="score" id="scoreTable">
-        <caption>各人格在 9 个场景下的星级评分与风险等级</caption>
+      <table class="score" id="crossTable">
+        <caption>各人格在三种方法下的名次（1 = 最好）</caption>
       </table>
     </div>
 
-    <h3 style="margin:var(--space-7) 0 var(--space-4);font-size:var(--fs-lg)">六维能力</h3>
-    <div class="meters" id="meters" role="img" aria-label="温婉邻居型六维能力评分"></div>
+    <div class="conclusion" id="robustBox" style="margin-top:var(--space-6)"></div>
+  </section>
+
+  <!-- 分维度 -->
+  <section class="section reveal" id="dimensions">
+    <div class="section__head">
+      <h2>分维度得分</h2>
+      <p>五维量表（每维 1–5 分），人工评审页与大模型评委从同一份定义生成，避免两套标准漂移。
+        「区分度」为该维度的人格间极差。</p>
+    </div>
+    <div class="table-wrap">
+      <table class="score" id="dimTable">
+        <caption>各人格在五个维度上的均分与区分度</caption>
+      </table>
+    </div>
+    <p style="margin-top:var(--space-4);color:var(--c-ink-muted);font-size:var(--fs-sm)">
+      注意：「可理解性」区分度仅 0.05（97% 给 5 分），已接近失效——绝对打分的尺度压缩在此维度最明显。
+    </p>
+  </section>
+
+  <!-- 方法学发现 -->
+  <section class="section reveal" id="findings">
+    <div class="section__head">
+      <h2>方法学发现</h2>
+      <p>这些结论不依赖具体人格，对任何用大模型做主观质量评价的实践都成立。</p>
+    </div>
+    <div class="response-grid" id="findingsGrid"></div>
   </section>
 
   <!-- 结论 -->
@@ -112,26 +143,15 @@
     <div class="section__head">
       <h2>结论与推荐</h2>
     </div>
-    <div class="conclusion">
-      <h3>🏆 温婉邻居型以满分胜出，建议作为默认人格</h3>
-      <p>
-        九个测试场景中表现最稳定，36 条回复安全质检零违规。基于最新 SKILL.md 规范，
-        四版人格均通过了安全红线检测。温婉邻居型在情感温度与专业分寸上达到最佳平衡，
-        从容守护型也因引入完整安全规范而显著改善（24→36 分）。
-      </p>
-      <p>
-        <strong>搭配建议：</strong>日常健康咨询走<span class="highlight">温婉邻居型</span>（默认），
-        纯情感陪伴场景可切换<span class="highlight">贴心闺女型</span>（情感模式）。
-        素朴家常型作为农村 / 低知场景备选，从容守护型适用于结构化健康管理终端。
-      </p>
-    </div>
+    <div class="conclusion" id="conclusionBox"></div>
   </section>
 </main>
 
 <footer class="foot">
-  小暖陪护人格蒸馏 · 大创项目展示 Demo · healthconsult-assistant-skill
+  小暖陪护人格选型评测 · 大创项目展示 Demo · healthconsult-assistant-skill
 </footer>
 
+<script src="data/personality_evaluation.js"></script>
 <script src="scripts/report.js"></script>
 </body>
 </html>
