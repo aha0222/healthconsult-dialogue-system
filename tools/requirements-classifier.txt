@@ -1,0 +1,5 @@
+# 场景/风险分级（Retriever + Reranker）可选依赖
+# 仅在使用 EMBEDDING_BACKEND=local 时需要；api/hash 后端无需安装。
+# 安装：pip install -r tools/requirements-classifier.txt
+sentence-transformers>=2.2.0
+numpy>=1.24.0

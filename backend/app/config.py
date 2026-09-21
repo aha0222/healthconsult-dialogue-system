@@ -30,6 +30,16 @@
     CACHE_ENABLED         是否开启回复缓存（默认关闭）
     CACHE_TTL_SECONDS     缓存有效期秒数，默认 300
     CACHE_MAX_SIZE        缓存最大条目数，默认 256
+    CLASSIFIER_LLM_FALLBACK  本地分类歧义时是否调 LLM 兜底（默认开启）
+    RETRIEVER_TOP_K       Retriever 召回候选数，默认 10
+    RERANKER_TOP_N        Reranker 精排后交给 LLM 的候选数，默认 3
+    EMBEDDING_BACKEND     嵌入后端 local / api / hash，默认 local（不可用时回退 hash）
+    EMBEDDING_MODEL       本地嵌入模型名，默认 BAAI/bge-small-zh-v1.5
+    EMBEDDING_MODEL_PATH  本地嵌入模型目录（优先级高于 EMBEDDING_MODEL）
+    EMBEDDING_BASE_URL    API 嵌入接口地址（EMBEDDING_BACKEND=api 时必填）
+    EMBEDDING_API_KEY     API 嵌入接口密钥
+    EMBEDDING_CACHE_DIR   向量缓存目录，默认 <repo>/.cache/embeddings
+    CORPUS_PATH           标注语料 JSONL 路径，默认 backend/app/dialogue/corpus/scene_risk_corpus.jsonl
 """
 
 import os
@@ -48,6 +58,10 @@ except ImportError:  # pragma: no cover
 DEFAULT_DB_PATH = REPO_ROOT / "backend" / "data" / "sessions.db"
 DEFAULT_SEMANTIC_RISKS = "R3,R2b"
 DEFAULT_ALERT_RISKS = "R3,R2b"
+DEFAULT_CORPUS_PATH = (
+    REPO_ROOT / "backend" / "app" / "dialogue" / "corpus" / "scene_risk_corpus.jsonl"
+)
+DEFAULT_EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "embeddings"
 
 
 def _split_origins(raw: str):
@@ -97,6 +111,16 @@ class Settings:
     cache_enabled: bool = False
     cache_ttl_seconds: int = 300
     cache_max_size: int = 256
+    classifier_llm_fallback: bool = True
+    retriever_top_k: int = 10
+    reranker_top_n: int = 3
+    embedding_backend: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_model_path: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_cache_dir: str = str(DEFAULT_EMBEDDING_CACHE_DIR)
+    corpus_path: str = str(DEFAULT_CORPUS_PATH)
 
     @property
     def fast_model(self) -> str:
@@ -142,6 +166,22 @@ class Settings:
             cache_enabled=_to_bool(os.environ.get("CACHE_ENABLED"), False),
             cache_ttl_seconds=int(os.environ.get("CACHE_TTL_SECONDS", "300")),
             cache_max_size=int(os.environ.get("CACHE_MAX_SIZE", "256")),
+            classifier_llm_fallback=_to_bool(
+                os.environ.get("CLASSIFIER_LLM_FALLBACK"), True
+            ),
+            retriever_top_k=int(os.environ.get("RETRIEVER_TOP_K", "10")),
+            reranker_top_n=int(os.environ.get("RERANKER_TOP_N", "3")),
+            embedding_backend=os.environ.get("EMBEDDING_BACKEND", "local").strip().lower(),
+            embedding_model=os.environ.get(
+                "EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5"
+            ),
+            embedding_model_path=os.environ.get("EMBEDDING_MODEL_PATH", ""),
+            embedding_base_url=os.environ.get("EMBEDDING_BASE_URL", ""),
+            embedding_api_key=os.environ.get("EMBEDDING_API_KEY", ""),
+            embedding_cache_dir=os.environ.get(
+                "EMBEDDING_CACHE_DIR", str(DEFAULT_EMBEDDING_CACHE_DIR)
+            ),
+            corpus_path=os.environ.get("CORPUS_PATH", str(DEFAULT_CORPUS_PATH)),
         )
 
     @property
