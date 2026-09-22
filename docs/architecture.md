@@ -42,6 +42,9 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 | `backend/app/sampling.py` | 已实现（线上样本脱敏导出） |
 | `backend/app/evaluation.py` | 已实现（风险分级评测） |
 | `backend/app/dialogue/routing.py` | 已实现（按风险选择模型） |
+| `backend/app/dialogue/classifier.py` | 已实现（关键词快路径 + 歧义 LLM 兜底） |
+| `backend/app/dialogue/retriever.py` | 已实现（local/api/hash 三嵌入后端 + 向量缓存） |
+| `backend/app/dialogue/reranker.py` | 已实现（向量 + n-gram + 关键词混合精排） |
 | `backend/app/cache.py` | 已实现（低风险首轮问答缓存，默认关闭） |
 | `backend/app/security.py` | 已实现（API Key 鉴权 + 按 IP 限流） |
 | `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/R2b 开启） |
@@ -89,6 +92,33 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 - `backend/app/sampling.py`：`redact`（手机号/身份证/银行卡脱敏）、`audit_to_sample`（按 risk + scenes 还原双维度标签，复用现有质检契约）、`export_samples`（支持 `--since`、`--only-flagged`）。
 - `backend/app/evaluation.py` + `tools/eval_risk.py`：固定评测集 `backend/tests/eval/risk_cases.jsonl` 上给风险分级器打分；`--mode local` 用本地兜底分级器（确定性，CI 可跑），`--mode llm` 走真实编排链路。
 - SFT 迭代：`generate_candidates` → `clean_candidates` → `validate_outputs` → `generate_manual_review_list` → 版本化入库（现为 `v0.2.3`）。
+
+## 场景/风险分级与语料检索（一期：离线工具）
+
+两步对话的第一步是**先定风险等级与场景类别**，用于后续按标签检索语料、提升回复质量。
+
+```
+用户输入
+  -> classifier 关键词/规则快路径（<1ms，0 token）
+       命中且无歧义 -> 直接得 (risk, scenes)
+       未命中/歧义/冲突 -> LLM 兜底分类（Retriever 召回 + Reranker 精排的 Top-N 相似语料作少样本）
+  -> 第二步：按 (risk, scenes) 检索语料，注入回复生成 prompt（语料库后续搭建）
+```
+
+- `classifier.py`：快路径复用 `safety_checker.detect_scenes` 与 `markers.infer_tags_local`；
+  歧义判定含"无场景命中 / 风险与场景矛盾 / 仅泛化词命中 / 多高风险场景并存"。
+- `retriever.py`：嵌入后端可插拔，保证可移植——`local`（sentence-transformers，权重在用户缓存目录）、
+  `api`（OpenAI 兼容 `/embeddings`，零下载）、`hash`（纯 Python，零依赖零下载，测试/离线兜底）；
+  local/api 不可用时自动回退 hash。语料为空时返回空列表，分类退回快路径 + LLM 兜底，功能不受影响。
+- `reranker.py`：向量相似度 + 字符 n-gram + 关键词/标签命中的混合打分，只保留 Top-N(2~5) 交给 LLM。
+- 语料：`backend/app/dialogue/corpus/scene_risk_corpus.jsonl`（当前空占位），
+  用 `tools/build_scene_risk_corpus.py` 从现有标注数据生成种子（稳定编号 C001…），正式语料后续并入。
+- 工具：`tools/classify_scene_risk.py`（CLI，`--mode auto|keyword|llm`、`--setup` 预热）、
+  `tools/eval_classifier.py`（快路径覆盖率 / 兜底率 / 准确率 / token 估算）。
+- 依赖：`tools/requirements-classifier.txt`（仅 `local` 后端需要），向量缓存写入 `.cache/`（已 gitignore）。
+
+评测参考（`risk_cases.jsonl` 21 条，hash 后端）：快路径覆盖约 81%、兜底率约 19%，
+风险准确率与场景 F1 均为 100%；兜底单次 prompt 约 350 token，对照完整 `SKILL.md` 约 7000 token。
 
 ## 人格选型评测
 
