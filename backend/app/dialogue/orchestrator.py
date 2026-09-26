@@ -14,9 +14,14 @@
 import logging
 
 from ..config import Settings, get_settings
-from ..safety.safety_checker import check_reply, has_internal_leak
+from ..safety.safety_checker import (
+    check_reply,
+    detect_forbidden_literal,
+    detect_internal_leak_literal,
+    has_internal_leak,
+)
 from .llm_client import LLMClient
-from .markers import infer_tags_local, parse_marker
+from .markers import infer_risk_local, infer_tags_local, parse_marker
 from .prompt import (
     DEFAULT_PERSONALITY,
     build_system_prompt,
@@ -94,6 +99,9 @@ LEAK_DEFLECTION = (
 # 流式输出时，末尾标记最长约 32 字符，留足余量避免标记中途闪现
 MARKER_HOLDBACK = 48
 
+# 流式链路：这些高风险输入改为全量缓冲后校验再下发，杜绝不安全文本流式泄露
+HIGH_RISK_STREAM = {"R3", "R2b"}
+
 
 def safe_fallback(risk, scenes=None) -> str:
     """按主场景/风险等级取安全兜底话术。"""
@@ -116,7 +124,13 @@ class DialogueOrchestrator:
         self.llm = llm or LLMClient(self.settings)
         self.semantic_checker = semantic_checker
 
-    def _build_messages(self, message: str, personality: str, history, memory_block=None):
+    def _build_messages(
+        self,
+        message: str,
+        personality: str,
+        history,
+        memory_block=None,
+    ):
         system_prompt = build_system_prompt(personality)
         if memory_block:
             system_prompt = f"{system_prompt}\n\n{memory_block}"
@@ -153,17 +167,47 @@ class DialogueOrchestrator:
     ):
         """流式处理：逐段 yield ("delta", 文本)，最后 yield ("done", 结果字典)。
 
-        结尾仍会做标记解析与安全兜底；命中红线时 done.reply 为安全话术，
-        客户端应以 done.reply 覆盖已显示的正文。
+        安全策略按输入风险分流：
+        - 高风险（R3/R2b）输入：全量缓冲，完整校验后再回传，全程不吐 delta，
+          命中红线时 done.reply 为保底话术，杜绝不安全文本逐字下发。
+        - 低风险输入：保留流式实时性，但对已缓冲内容做增量硬红线守护，
+          一旦命中立即停止下发并兜底。
+        结尾仍做标记解析与安全兜底；客户端以 done.reply 覆盖已显示正文。
         """
         personality = normalize_personality(personality)
         messages = self._build_messages(message, personality, history, memory_block)
         model = select_model(message, self.settings)
 
+        pre_risk = infer_risk_local(message)
+        _, pre_scenes = infer_tags_local(message)
+
+        # 高风险输入：先收齐、校验，再一次性回传，牺牲实时性换取零泄漏。
+        if pre_risk in HIGH_RISK_STREAM:
+            buffer = ""
+            for chunk in self.llm.chat_stream(messages, model=model):
+                buffer += chunk
+            result = self._finalize(buffer, message, personality, model)
+            yield "done", result
+            return
+
         buffer = ""
         emitted = 0
         for chunk in self.llm.chat_stream(messages, model=model):
             buffer += chunk
+            # 增量守护：对已缓冲前缀做禁止话术 + 内部规则泄露的轻量检测。
+            if detect_forbidden_literal(buffer) or detect_internal_leak_literal(buffer):
+                result = dict(self._finalize(buffer, message, personality, model))
+                if not result["fallback_used"]:
+                    result["fallback_used"] = True
+                    result["violations"] = list(result.get("violations") or []) + [
+                        "stream_safety_guard"
+                    ]
+                    if detect_internal_leak_literal(buffer):
+                        result["reply"] = LEAK_DEFLECTION
+                    else:
+                        result["reply"] = safe_fallback(pre_risk, pre_scenes)
+                yield "done", result
+                return
             safe = len(buffer) - MARKER_HOLDBACK
             if safe > emitted:
                 yield "delta", buffer[emitted:safe]
