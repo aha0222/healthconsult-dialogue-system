@@ -96,6 +96,13 @@ python -m venv .venv
 | `CACHE_ENABLED` | 是否开启回复缓存 | `0` |
 | `CACHE_TTL_SECONDS` | 缓存有效期秒数 | `300` |
 | `CACHE_MAX_SIZE` | 缓存最大条目数 | `256` |
+| `RUNTIME_CLASSIFIER` | 运行时用关键词快路径预判 risk/scenes | `1` |
+| `RUNTIME_RETRIEVAL` | 非高风险时检索相似语料注入 prompt | `1` |
+| `PROMPT_COMPACT` | 典型低风险用精简 prompt 省 token | `1` |
+| `EXEMPLAR_CORPUS_PATH` | 运行时检索用带回复语料（空则用默认 `v0.3.0_corpus500.jsonl`） | 空 |
+| `EXEMPLAR_EMBEDDING_BACKEND` | 运行时检索嵌入后端 `hash`/`local`/`api` | `hash` |
+| `RETRIEVER_TOP_K` / `RERANKER_TOP_N` | 召回数 / 精排后交给 LLM 的样例数 | `10` / `3` |
+| `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | 离线分类器嵌入后端与模型 | `local` / `BAAI/bge-small-zh-v1.5` |
 
 ## 性能与成本
 
