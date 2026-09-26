@@ -11,6 +11,7 @@
   "use strict";
 
   var STORAGE_KEY = "xiaonuan_settings";
+  var USER_KEY = "xiaonuan_user_id";
 
   var PERSONALITY_DESCS = {
     "温婉邻居型": "温婉端庄，先安抚再建议",
@@ -31,6 +32,29 @@
     E1: "急症识别",
     N1: "人身安全", N2: "环境安全", N3: "诈骗财产",
     X1: "闲聊", X2: "系统功能",
+  };
+
+  var COLLECTED_LABELS = {
+    name: "称呼",
+    age: "年龄",
+    living: "居住",
+    conditions: "基础病",
+    medications: "用药",
+    allergies: "过敏史",
+    healthConcerns: "健康困扰",
+    mobility: "行动/自理",
+    emergencyContact: "紧急联系人",
+    emergencyPhone: "紧急联系电话",
+  };
+
+  var PROFILE_KEYS = ["conditions", "medications", "family", "preferences", "notes"];
+
+  var PROFILE_LABELS = {
+    conditions: "慢病/健康状况",
+    medications: "用药",
+    family: "家属",
+    preferences: "偏好",
+    notes: "其他",
   };
 
   var ASSISTANT_AVATAR = "assets/温婉晚辈头像.webp";
@@ -285,6 +309,16 @@
     $("btnSettings").addEventListener("click", function () { settingsDialog.showModal(); });
     $("btnHistory").addEventListener("click", openHistory);
     $("btnNew").addEventListener("click", newConversation);
+    $("btnMemory").addEventListener("click", openMemoryDialog);
+    $("btnRecoverUser").addEventListener("click", function () {
+      var d = $("profileDialog");
+      if (d) d.close();
+      openSwitchUser();
+    });
+    var btnRecoverOnboard = $("btnRecoverOnboard");
+    if (btnRecoverOnboard) {
+      btnRecoverOnboard.addEventListener("click", openSwitchUser);
+    }
     $("saveSettings").addEventListener("click", saveSettings);
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-close]"), function (btn) {
@@ -340,6 +374,310 @@
 
   function backendBase() {
     return backendUrlEl.value.trim().replace(/\/+$/, "");
+  }
+
+  /* ── 用户档案：写入后端记忆 + 可视化展示 ───────────────── */
+  function getUserId() {
+    return localStorage.getItem(USER_KEY) || "";
+  }
+
+  function setUserId(id) {
+    if (id) localStorage.setItem(USER_KEY, id);
+    else localStorage.removeItem(USER_KEY);
+  }
+
+  function maskPhone(value) {
+    var digits = String(value || "").replace(/\D/g, "");
+    if (!digits) return String(value || "");
+    if (digits.length <= 7) {
+      return digits.length > 1 ? digits[0] + "****" + digits[digits.length - 1] : "****";
+    }
+    return digits.slice(0, 3) + "****" + digits.slice(-4);
+  }
+
+  function localCollected(fields) {
+    var out = {};
+    Object.keys(COLLECTED_LABELS).forEach(function (key) {
+      var value = String((fields && fields[key]) || "").trim();
+      out[key] = key === "emergencyPhone" ? maskPhone(value) : value;
+    });
+    return out;
+  }
+
+  function splitList(value) {
+    if (!value) return [];
+    return String(value)
+      .split(/[,，、;；/\\|\n]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(Boolean);
+  }
+
+  function collectedToProfile(collected) {
+    var profile = {
+      conditions: splitList(collected && collected.conditions),
+      medications: splitList(collected && collected.medications),
+      family: [],
+      preferences: [],
+      notes: [],
+    };
+    if (collected && collected.allergies) profile.notes.push("过敏史：" + collected.allergies);
+    if (collected && collected.healthConcerns) profile.notes.push("健康困扰：" + collected.healthConcerns);
+    if (collected && collected.mobility) profile.notes.push("行动/自理：" + collected.mobility);
+    return profile;
+  }
+
+  function diffList(full, subtract) {
+    var sub = {};
+    (subtract || []).forEach(function (v) {
+      sub[String(v).trim().toLowerCase()] = true;
+    });
+    return (full || []).filter(function (v) {
+      return !sub[String(v).trim().toLowerCase()];
+    });
+  }
+
+  function saveProfile(fields) {
+    var base = backendBase();
+    if (!base) return Promise.reject(new Error("未配置后端地址"));
+    var body = {
+      user_id: getUserId() || null,
+      name: (fields && fields.name) || "",
+      age: (fields && fields.age) || "",
+      living: (fields && fields.living) || "",
+      conditions: (fields && fields.conditions) || "",
+      medications: (fields && fields.medications) || "",
+      allergies: (fields && fields.allergies) || "",
+      healthConcerns: (fields && fields.healthConcerns) || "",
+      mobility: (fields && fields.mobility) || "",
+      emergencyContact: (fields && fields.emergencyContact) || "",
+      emergencyPhone: (fields && fields.emergencyPhone) || "",
+    };
+    return fetch(base + "/api/profile", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (err) {
+            throw new Error(err.detail || ("HTTP " + resp.status));
+          });
+        }
+        return resp.json();
+      })
+      .then(function (detail) {
+        if (detail && detail.id) setUserId(detail.id);
+        return detail;
+      });
+  }
+
+  function hasMemoryData(collected, profile, summary) {
+    var hasCollected = false;
+    if (collected) {
+      hasCollected = Object.keys(COLLECTED_LABELS).some(function (key) {
+        return !!collected[key];
+      });
+    }
+    var hasProfile = PROFILE_KEYS.some(function (key) {
+      var arr = profile && profile[key];
+      return Array.isArray(arr) && arr.length > 0;
+    });
+    return hasCollected || hasProfile || !!summary;
+  }
+
+  function buildMemoryHeadline(collected, profile) {
+    var parts = [];
+    if (collected && collected.name) parts.push(collected.name);
+    if (collected && collected.conditions) {
+      parts.push(String(collected.conditions).split(/[,，、;；]/)[0]);
+    }
+    if (collected && collected.allergies) {
+      parts.push("过敏：" + String(collected.allergies).split(/[,，、;；]/)[0]);
+    }
+    return parts.join(" · ") || "已记住您的情况";
+  }
+
+  function memoryRow(label, value) {
+    var row = document.createElement("div");
+    row.className = "memory-row";
+    var lab = document.createElement("div");
+    lab.className = "memory-row__label";
+    lab.textContent = label;
+    var val = document.createElement("div");
+    val.className = "memory-row__value";
+    val.textContent = value;
+    row.appendChild(lab);
+    row.appendChild(val);
+    return row;
+  }
+
+  function memorySection(title) {
+    var sec = document.createElement("div");
+    sec.className = "memory-section";
+    var h = document.createElement("h3");
+    h.textContent = title;
+    sec.appendChild(h);
+    return sec;
+  }
+
+  function renderMemory(data) {
+    var collected = (data && data.collected) || {};
+    var profile = (data && data.profile) || {};
+    var summary = (data && data.conversation_summary) || (data && data.summary) || "";
+
+    var panel = $("memoryPanel");
+    var headlineEl = $("memoryPanelHeadline");
+    if (panel) {
+      panel.hidden = !hasMemoryData(collected, profile, summary);
+      if (headlineEl) headlineEl.textContent = buildMemoryHeadline(collected, profile);
+    }
+
+    var body = $("memoryBody");
+    if (body) {
+      body.textContent = "";
+
+      var info = memorySection("您告诉小暖的");
+      ["name", "age", "living", "conditions", "medications", "allergies", "healthConcerns", "mobility", "emergencyContact", "emergencyPhone"].forEach(function (key) {
+        var value = collected[key];
+        if (value) info.appendChild(memoryRow(COLLECTED_LABELS[key], value));
+      });
+      if (info.children.length > 1) body.appendChild(info);
+
+      var selfProfile = collectedToProfile(collected);
+      var learned = memorySection("小暖从对话中记住的");
+      PROFILE_KEYS.forEach(function (key) {
+        var items = diffList(profile[key], selfProfile[key]);
+        if (items.length) {
+          learned.appendChild(memoryRow(PROFILE_LABELS[key], items.join("、")));
+        }
+      });
+      if (learned.children.length > 1) body.appendChild(learned);
+
+      if (summary) {
+        var sum = memorySection("近期摘要");
+        var p = document.createElement("p");
+        p.className = "memory-summary";
+        p.textContent = summary;
+        sum.appendChild(p);
+        body.appendChild(sum);
+      }
+
+      if (body.children.length === 0) {
+        var empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "还没有已记住的信息，填写个人信息后就会显示在这里。";
+        body.appendChild(empty);
+      }
+    }
+  }
+
+  function openMemoryDialog() {
+    var dialog = $("memoryDialog");
+    if (dialog) dialog.showModal();
+  }
+
+  function openSwitchUser() {
+    var dialog = $("switchUserDialog");
+    if (dialog) dialog.showModal();
+
+    var listEl = $("switchUserList");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    var loading = document.createElement("p");
+    loading.className = "empty";
+    loading.textContent = "加载中…";
+    listEl.appendChild(loading);
+
+    var base = backendBase();
+    if (!base) {
+      renderSwitchUserEmpty("请先在设置里配置后端地址");
+      return;
+    }
+    fetch(base + "/api/users", { headers: authHeaders() })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.json();
+      })
+      .then(renderSwitchUserList)
+      .catch(function (e) {
+        renderSwitchUserEmpty("加载失败：" + e.message);
+      });
+  }
+
+  function renderSwitchUserEmpty(text) {
+    var listEl = $("switchUserList");
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    var p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = text;
+    listEl.appendChild(p);
+  }
+
+  function renderSwitchUserList(users) {
+    var listEl = $("switchUserList");
+    if (!listEl) return;
+    if (!users || !users.length) {
+      renderSwitchUserEmpty("还没有已保存的档案");
+      return;
+    }
+    listEl.innerHTML = "";
+    users.forEach(function (u) {
+      var row = document.createElement("div");
+      row.className = "session-item";
+
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "session-item__open";
+      btn.addEventListener("click", function () { bindUser(u.id); });
+
+      var info = document.createElement("div");
+      info.className = "session-item__info";
+      var title = document.createElement("div");
+      title.className = "session-item__title";
+      title.textContent = u.display_name || "未命名档案";
+      var sub = document.createElement("div");
+      sub.className = "session-item__sub tnum";
+      var phone = (u.collected && u.collected.emergencyPhone) || "";
+      sub.textContent = phone ? "电话 " + phone : "已采集资料";
+      info.appendChild(title);
+      info.appendChild(sub);
+      btn.appendChild(info);
+      row.appendChild(btn);
+      listEl.appendChild(row);
+    });
+  }
+
+  function bindUser(userId) {
+    var base = backendBase();
+    if (!base) return;
+    fetch(base + "/api/users/" + encodeURIComponent(userId), { headers: authHeaders() })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.json();
+      })
+      .then(function (detail) {
+        setUserId(detail.id);
+        if (window.Xiaonuan.setLocalProfile) {
+          window.Xiaonuan.setLocalProfile(detail.collected || {});
+        }
+        renderMemory(detail);
+
+        sessionId = null;
+        messages = [];
+        messagesEl.textContent = "";
+        welcomeEl.hidden = false;
+        setRiskAmbient(null);
+
+        var dialog = $("switchUserDialog");
+        if (dialog) dialog.close();
+        var profileDialog = $("profileDialog");
+        if (profileDialog) profileDialog.close();
+        showSystemMsg("已恢复档案：" + (detail.display_name || "未命名档案"));
+      })
+      .catch(function (e) {
+        showSystemMsg("恢复失败：" + e.message, true);
+      });
   }
 
   /* ── 语音播报 TTS ───────────────────────────────────────── */
@@ -638,6 +976,7 @@
 
   function renderSessionMessages(detail) {
     sessionId = detail.id;
+    if (detail.user_id) setUserId(detail.user_id);
     messages = [];
     messagesEl.textContent = "";
     welcomeEl.hidden = true;
@@ -658,6 +997,7 @@
       personalitySelect.value = detail.personality;
       updateStatus();
     }
+    renderMemory(detail);
     showSystemMsg("已载入历史对话");
   }
 
@@ -720,6 +1060,8 @@
     var payload = { message: text, personality: currentPersonality };
     if (sessionId) payload.session_id = sessionId;
     else payload.history = messages.slice(0, -1);
+    var userId = getUserId();
+    if (userId) payload.user_id = userId;
 
     fetch(base + "/api/chat/stream", {
       method: "POST",
@@ -778,6 +1120,7 @@
             assistantText = evt.data.reply || assistantText;
             setBubbleText(msg, assistantText);
             updateMessageRisk(msg, evt.data.risk, evt.data.scenes);
+            if (evt.data.fallback_used) msg.el.classList.add("msg--fallback");
             setRiskAmbient(evt.data.risk);
             if (evt.data.violations && evt.data.violations.length) {
               console.warn("[小暖质检]", evt.data.violations);
@@ -796,6 +1139,18 @@
     }
     return pump();
   }
+
+  /* 供欢迎流程 / 个人信息弹窗复用的对外接口 */
+  window.Xiaonuan = {
+    getUserId: getUserId,
+    setUserId: setUserId,
+    saveProfile: saveProfile,
+    renderMemory: renderMemory,
+    openMemory: openMemoryDialog,
+    maskPhone: maskPhone,
+    localCollected: localCollected,
+    notify: function (text) { showSystemMsg(text); },
+  };
 
   init();
 })();

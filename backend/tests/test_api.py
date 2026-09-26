@@ -322,3 +322,189 @@ def test_cache_stats_endpoint(make_client):
     resp = client.get("/api/cache/stats")
     assert resp.status_code == 200
     assert "size" in resp.json()
+
+
+def test_save_profile_and_get_user(make_client):
+    client = make_client(reply="x")
+    resp = client.post(
+        "/api/profile",
+        json={
+            "name": "张阿姨",
+            "age": "72",
+            "living": "独居",
+            "conditions": "高血压、糖尿病",
+            "medications": "氨氯地平",
+            "allergies": "青霉素过敏",
+            "healthConcerns": "膝盖疼",
+            "mobility": "能自理",
+            "emergencyContact": "儿子 王先生",
+            "emergencyPhone": "13812345678",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"]
+    assert body["display_name"] == "张阿姨"
+    assert body["collected"]["emergencyPhone"] == "138****5678"
+    assert body["profile"]["conditions"] == ["高血压", "糖尿病"]
+    assert "张阿姨" in body["summary"]
+
+    user_id = body["id"]
+    got = client.get(f"/api/users/{user_id}").json()
+    assert got["id"] == user_id
+    assert got["collected"]["emergencyPhone"] == "138****5678"
+
+    listed = client.get("/api/users").json()
+    assert any(u["id"] == user_id for u in listed)
+
+
+def test_get_user_404(make_client):
+    client = make_client(reply="x")
+    assert client.get("/api/users/nope").status_code == 404
+
+
+def test_profile_write_injected_into_next_reply(make_client):
+    client = make_client(reply="好的。[RISK:R0]")
+    saved = client.post(
+        "/api/profile",
+        json={
+            "name": "张阿姨",
+            "conditions": "高血压、糖尿病",
+            "medications": "氨氯地平",
+            "emergencyPhone": "13812345678",
+        },
+    ).json()
+    user_id = saved["id"]
+
+    spy = SpyOrchestrator()
+    app.dependency_overrides[get_orchestrator] = lambda: spy
+
+    client.post("/api/chat", json={"message": "我血压有点高", "user_id": user_id})
+    known = spy.memory_blocks[-1]
+    assert "【已知信息】" in known
+    assert "高血压" in known
+    assert "张阿姨" in known
+    assert "138****5678" in known
+    assert "用户自述信息" not in known
+
+
+def test_session_detail_returns_merged_profile(make_client):
+    client = make_client(reply="您记下来带给医生看。[RISK:R1]")
+    saved = client.post(
+        "/api/profile",
+        json={"name": "张阿姨", "conditions": "高血压", "emergencyPhone": "13812345678"},
+    ).json()
+    user_id = saved["id"]
+
+    chat = client.post(
+        "/api/chat", json={"message": "我血压有点高", "user_id": user_id}
+    ).json()
+    session_id = chat["session_id"]
+
+    detail = client.get(f"/api/sessions/{session_id}").json()
+    assert detail["user_id"] == user_id
+    assert detail["collected"]["name"] == "张阿姨"
+    assert detail["collected"]["emergencyPhone"] == "138****5678"
+    assert detail["profile"]["conditions"] == ["高血压"]
+
+
+def test_legacy_user_profile_still_injected(make_client):
+    client = make_client(reply="好的。[RISK:R0]")
+    spy = SpyOrchestrator()
+    app.dependency_overrides[get_orchestrator] = lambda: spy
+
+    client.post(
+        "/api/chat",
+        json={"message": "你好", "user_profile": "高血压、青霉素过敏"},
+    )
+    known = spy.memory_blocks[-1]
+    assert "【已知信息】" in known
+    assert "高血压" in known
+    assert "用户自述信息" not in known
+
+
+def test_profile_resave_preserves_conversation_memory(make_client):
+    client = make_client(reply="x")
+    saved = client.post(
+        "/api/profile", json={"name": "张阿姨", "conditions": "高血压"}
+    ).json()
+    user_id = saved["id"]
+
+    db = app.dependency_overrides[get_db]()
+    db.update_user_memory(
+        user_id,
+        conversation_profile=json.dumps(
+            {
+                "conditions": ["冠心病"],
+                "medications": [],
+                "family": ["儿子"],
+                "preferences": ["爱喝茶"],
+                "notes": [],
+            },
+            ensure_ascii=False,
+        ),
+        conversation_summary="老人提到儿子和爱喝茶。",
+    )
+
+    # 模拟编辑个人信息并再次保存
+    client.post(
+        "/api/profile",
+        json={"user_id": user_id, "name": "张阿姨", "conditions": "高血压、糖尿病"},
+    )
+    user = client.get(f"/api/users/{user_id}").json()
+    assert user["conversation_summary"] == "老人提到儿子和爱喝茶。"
+    assert "儿子" in user["profile"]["family"]
+    assert "爱喝茶" in user["profile"]["preferences"]
+    assert "糖尿病" in user["profile"]["conditions"]
+
+
+def test_profile_resave_removes_deleted_self_report_item(make_client):
+    """重存个人信息时，被删除的自述项应从画像移除，同时保留对话提炼画像。"""
+    client = make_client(reply="x")
+    saved = client.post(
+        "/api/profile", json={"name": "张阿姨", "conditions": "高血压"}
+    ).json()
+    user_id = saved["id"]
+
+    db = app.dependency_overrides[get_db]()
+    db.update_user_memory(
+        user_id,
+        conversation_profile=json.dumps(
+            {
+                "conditions": ["冠心病"],
+                "medications": [],
+                "family": ["儿子"],
+                "preferences": [],
+                "notes": [],
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    client.post(
+        "/api/profile",
+        json={"user_id": user_id, "name": "张阿姨", "conditions": "糖尿病"},
+    )
+    user = client.get(f"/api/users/{user_id}").json()
+    assert "高血压" not in user["profile"]["conditions"]
+    assert "糖尿病" in user["profile"]["conditions"]
+    assert "冠心病" in user["profile"]["conditions"]
+    assert user["profile"]["family"] == ["儿子"]
+
+
+def test_conversation_summary_surfaced_in_api(make_client):
+    client = make_client(reply="您记下来带给医生看。[RISK:R1]")
+    saved = client.post(
+        "/api/profile", json={"name": "张阿姨", "conditions": "高血压"}
+    ).json()
+    user_id = saved["id"]
+
+    db = app.dependency_overrides[get_db]()
+    db.update_user_memory(user_id, conversation_summary="老人提到儿子。")
+
+    chat = client.post(
+        "/api/chat", json={"message": "我血压有点高", "user_id": user_id}
+    ).json()
+    detail = client.get(f"/api/sessions/{chat['session_id']}").json()
+    assert detail["conversation_summary"] == "老人提到儿子。"
+    assert client.get(f"/api/users/{user_id}").json()["conversation_summary"] == "老人提到儿子。"

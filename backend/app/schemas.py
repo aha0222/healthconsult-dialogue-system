@@ -29,6 +29,14 @@ class ChatRequest(BaseModel):
         description="历史消息",
     )
     session_id: Optional[str] = Field(default=None, description="会话标识（可选，当前无状态）")
+    user_id: Optional[str] = Field(
+        default=None,
+        description="用户标识（绑定用户级档案，跨会话复用记忆）",
+    )
+    user_profile: Optional[str] = Field(
+        default=None,
+        description="用户自述的陪护信息（前端采集，未经核实，仅用于个性化陪伴）",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -65,6 +73,7 @@ class SessionSummary(BaseModel):
     created_at: str
     updated_at: str
     message_count: int = 0
+    user_id: Optional[str] = None
 
 
 class SessionMessage(BaseModel):
@@ -80,8 +89,11 @@ class SessionDetail(BaseModel):
     personality: str
     created_at: str
     updated_at: str
+    user_id: Optional[str] = None
     summary: Optional[str] = None
+    conversation_summary: Optional[str] = None
     profile: Optional[dict] = None
+    collected: Optional[dict] = None
     messages: List[SessionMessage] = Field(default_factory=list)
 
 
@@ -110,3 +122,32 @@ class TaxonomyResponse(BaseModel):
     scenes: List[str] = Field(default_factory=list)
     scene_labels: dict = Field(default_factory=dict)
     scene_groups: dict = Field(default_factory=dict)
+
+
+class ProfileRequest(BaseModel):
+    """欢迎流程采集的 10 项资料（与前端字段一一对应）。"""
+
+    user_id: Optional[str] = Field(default=None, description="已有用户 id；缺省则新建")
+    name: str = ""
+    age: str = ""
+    living: str = ""
+    conditions: str = ""
+    medications: str = ""
+    allergies: str = ""
+    healthConcerns: str = ""
+    mobility: str = ""
+    emergencyContact: str = ""
+    emergencyPhone: str = ""
+
+
+class UserRecord(BaseModel):
+    """用户级档案（采集资料已脱敏、画像已结构化）。"""
+
+    id: str
+    display_name: str = ""
+    collected: dict = Field(default_factory=dict)
+    profile: dict = Field(default_factory=dict)
+    summary: str = ""
+    conversation_summary: str = ""
+    created_at: str
+    updated_at: str

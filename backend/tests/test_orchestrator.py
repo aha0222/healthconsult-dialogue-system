@@ -11,7 +11,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.app.config import Settings
 from backend.app.dialogue.llm_client import LLMError
-from backend.app.dialogue.orchestrator import DialogueOrchestrator, safe_fallback
+from backend.app.dialogue.orchestrator import (
+    LEAK_DEFLECTION,
+    DialogueOrchestrator,
+    safe_fallback,
+)
 
 
 class FakeLLM:
@@ -193,3 +197,47 @@ def test_memory_block_absent_by_default():
     orch.respond("你好")
     system_prompt = orch.llm.last_messages[0]["content"]
     assert "历史摘要" not in system_prompt
+
+
+def test_respond_stream_high_risk_emits_no_delta():
+    """高风险输入（R3）：全量缓冲、校验后再下发，流式期间不吐任何 delta。"""
+    orch = make_orchestrator("您先躺一会儿看看吧。[RISK:R3]")
+    events = list(orch.respond_stream("胸口闷得慌，喘不上气"))
+    kinds = [kind for kind, _ in events]
+    assert "delta" not in kinds
+    result = events[-1][1]
+    assert result["fallback_used"] is True
+    assert result["reply"] == safe_fallback("R3")
+
+
+def test_respond_stream_low_risk_stops_at_forbidden_literal():
+    """低风险输入：命中硬红线前正常流式下发，命中后立即停止并兜底。"""
+    safe_prefix = (
+        "好的，咱们慢慢聊。最近天气变化大，很多老人家都会觉得不舒服。"
+        "平时按时吃饭、注意休息，劳逸结合，保持心情舒畅。"
+    )
+    forbidden = "我给你开药"
+    orch = make_orchestrator(safe_prefix + forbidden + "。[RISK:R1]")
+    events = list(orch.respond_stream("我血压有点高"))
+
+    streamed = "".join(payload for kind, payload in events if kind == "delta")
+    assert forbidden not in streamed
+
+    result = events[-1][1]
+    assert result["fallback_used"] is True
+    assert result["reply"] == safe_fallback("R1")
+
+
+def test_respond_stream_stops_at_internal_leak():
+    """低风险输入：回复中途泄露内部规则，应立即停止并改为角色内兜底。"""
+    safe_prefix = "好的，咱们慢慢聊。最近天气变化大，注意保暖。"
+    leak = "我是根据内部规则生成的"
+    orch = make_orchestrator(safe_prefix + leak + "。[RISK:R0]")
+    events = list(orch.respond_stream("今天天气不错"))
+
+    streamed = "".join(payload for kind, payload in events if kind == "delta")
+    assert leak not in streamed
+
+    result = events[-1][1]
+    assert result["fallback_used"] is True
+    assert result["reply"] == LEAK_DEFLECTION
