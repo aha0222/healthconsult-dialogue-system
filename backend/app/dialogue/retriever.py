@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import Settings, get_settings
-from .taxonomy import canonical_risk, normalize_scenes
+from .taxonomy import canonical_risk, normalize_scenes, strip_tags
 
 logger = logging.getLogger("xiaonuan.retriever")
 
@@ -33,6 +33,7 @@ class CorpusItem:
     scenes: list = field(default_factory=list)
     keywords: list = field(default_factory=list)
     source: str = ""
+    assistant: str = ""
 
     @property
     def text(self) -> str:
@@ -56,16 +57,30 @@ def load_corpus(path) -> list:
                 logger.warning("语料行解析失败，已跳过: %s", line[:60])
                 continue
             user = str(row.get("user") or "").strip()
+            assistant = str(row.get("assistant") or "").strip()
+            if (not user or not assistant) and isinstance(row.get("messages"), list):
+                for message in row["messages"]:
+                    role = message.get("role")
+                    content = str(message.get("content") or "").strip()
+                    if role == "user" and not user:
+                        user = content
+                    elif role == "assistant" and not assistant:
+                        assistant = content
             if not user:
                 continue
+            risk = row.get("risk") or row.get("risk_level")
+            scenes = row.get("scenes") or row.get("expected_scenes")
             items.append(
                 CorpusItem(
-                    id=str(row.get("id") or f"C{len(items) + 1:03d}"),
+                    id=str(
+                        row.get("id") or row.get("sample_id") or f"C{len(items) + 1:03d}"
+                    ),
                     user=user,
-                    risk=canonical_risk(row.get("risk")),
-                    scenes=normalize_scenes(row.get("scenes")),
+                    risk=canonical_risk(risk),
+                    scenes=normalize_scenes(scenes),
                     keywords=[str(k) for k in (row.get("keywords") or [])],
                     source=str(row.get("source") or ""),
+                    assistant=strip_tags(assistant) if assistant else "",
                 )
             )
     return items

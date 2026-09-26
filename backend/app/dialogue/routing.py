@@ -12,9 +12,9 @@ from .markers import infer_risk_local
 STRONG_RISKS = {"R3", "R2b"}
 
 
-def select_model(message: str, settings: Settings) -> str:
-    """返回本次调用应使用的模型名。"""
+def select_model(message: str, settings: Settings, risk: str | None = None) -> str:
+    """返回本次调用应使用的模型名；risk 可由分类器预判传入，缺省再本地兜底。"""
     if not settings.routing_enabled:
         return settings.model
-    risk = infer_risk_local(message)
+    risk = risk or infer_risk_local(message)
     return settings.strong_model if risk in STRONG_RISKS else settings.fast_model
