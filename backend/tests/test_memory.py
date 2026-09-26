@@ -160,3 +160,84 @@ def test_disabled_summary_skips_llm(tmp_path):
 
     manager.prepare(sid)
     assert llm.calls == 0
+
+
+def _make_user(db, collected=None, profile=None):
+    collected = collected or {"name": "张阿姨", "conditions": "高血压"}
+    profile = profile or {
+        "conditions": ["高血压"],
+        "medications": [],
+        "family": [],
+        "preferences": [],
+        "notes": [],
+    }
+    return db.upsert_user(
+        None,
+        display_name="张阿姨",
+        collected=collected,
+        profile=profile,
+        summary="张阿姨。",
+    )
+
+
+def test_refresh_writes_conversation_memory_to_user(tmp_path):
+    db = Database(tmp_path / "m.db")
+    user_id = _make_user(db)
+    sid = db.create_session("温婉邻居型", user_id=user_id)
+    seed(db, sid, 6)
+
+    reply = json.dumps(
+        {
+            "summary": "老人提到儿子，喜欢喝茶。",
+            "profile": {
+                "conditions": ["高血压"],
+                "medications": [],
+                "family": ["儿子"],
+                "preferences": ["爱喝茶"],
+                "notes": [],
+            },
+        },
+        ensure_ascii=False,
+    )
+    manager = MemoryManager(db, llm=FakeMemoryLLM(reply=reply), settings=make_settings())
+    manager.prepare(sid)
+
+    user = db.get_user(user_id)
+    assert "儿子" in user["conversation_profile"]
+    assert "爱喝茶" in user["conversation_profile"]
+    # 自述画像不被对话提炼画像污染
+    assert "儿子" not in user["profile"]
+    assert "爱喝茶" not in user["profile"]
+    assert user["conversation_summary"] == "老人提到儿子，喜欢喝茶。"
+    # 采集摘要不被对话摘要覆盖
+    assert user["summary"] == "张阿姨。"
+
+
+def test_new_session_reads_previous_conversation_memory(tmp_path):
+    db = Database(tmp_path / "m.db")
+    user_id = _make_user(db)
+    s1 = db.create_session("温婉邻居型", user_id=user_id)
+    seed(db, s1, 6)
+
+    reply = json.dumps(
+        {
+            "summary": "提到儿子和爱喝茶",
+            "profile": {
+                "conditions": ["高血压", "冠心病"],
+                "medications": [],
+                "family": ["儿子"],
+                "preferences": ["爱喝茶"],
+                "notes": [],
+            },
+        },
+        ensure_ascii=False,
+    )
+    manager = MemoryManager(db, llm=FakeMemoryLLM(reply=reply), settings=make_settings())
+    manager.prepare(s1)
+
+    user = db.get_user(user_id)
+    block = manager.known_info_for_user(user)
+    assert "家属：儿子" in block
+    assert "偏好：爱喝茶" in block
+    assert "慢病/健康状况：高血压、冠心病" in block
+    assert "近期摘要：提到儿子和爱喝茶" in block

@@ -6,6 +6,9 @@
     v2: audit_log(id, session_id, personality, user_message, reply, risk,
                   violations, fallback_used, model, latency_ms, created_at)
     v3: sessions 增加 summary / profile / summary_upto（滚动摘要与长期画像）
+    v5: users（用户级档案/画像）与 sessions.user_id（跨会话绑定）
+    v6: users 增加 conversation_summary（对话提炼摘要，与采集摘要 summary 分离）
+    v7: users 增加 conversation_profile（对话提炼画像，与采集画像 profile 分离）
 """
 
 import json
@@ -65,11 +68,38 @@ ALTER TABLE messages ADD COLUMN scenes TEXT;
 ALTER TABLE audit_log ADD COLUMN scenes TEXT;
 """
 
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    collected TEXT,
+    profile TEXT,
+    summary TEXT,
+    summary_upto INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_updated ON users(updated_at);
+ALTER TABLE sessions ADD COLUMN user_id TEXT;
+"""
+
+USER_CONVERSATION_SCHEMA = """
+ALTER TABLE users ADD COLUMN conversation_summary TEXT;
+"""
+
+USER_CONVERSATION_PROFILE_SCHEMA = """
+ALTER TABLE users ADD COLUMN conversation_profile TEXT;
+"""
+
 MIGRATIONS = [
     (1, SESSIONS_SCHEMA),
     (2, AUDIT_SCHEMA),
     (3, MEMORY_SCHEMA),
     (4, SCENES_SCHEMA),
+    (5, USERS_SCHEMA),
+    (6, USER_CONVERSATION_SCHEMA),
+    (7, USER_CONVERSATION_PROFILE_SCHEMA),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]
@@ -120,14 +150,14 @@ class Database:
 
     # ── 会话 ──
 
-    def create_session(self, personality: str) -> str:
+    def create_session(self, personality: str, user_id: str | None = None) -> str:
         session_id = uuid.uuid4().hex
         now = _now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, personality, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?)",
-                (session_id, personality, now, now),
+                "INSERT INTO sessions (id, personality, user_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_id, personality, user_id, now, now),
             )
         return session_id
 
@@ -158,6 +188,99 @@ class Database:
             )
             deleted = cursor.rowcount > 0
         return deleted
+
+    # ── 用户级档案 ──
+
+    def upsert_user(
+        self,
+        user_id: str | None,
+        display_name: str = "",
+        collected=None,
+        profile=None,
+        summary=None,
+    ) -> str:
+        """创建或更新用户档案，返回用户 id。"""
+        user_id = user_id or uuid.uuid4().hex
+        now = _now()
+        collected_json = json.dumps(collected or {}, ensure_ascii=False)
+        profile_json = json.dumps(profile or {}, ensure_ascii=False)
+        summary_text = summary or ""
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE users SET display_name = ?, collected = ?, profile = ?, "
+                    "summary = ?, updated_at = ? WHERE id = ?",
+                    (display_name, collected_json, profile_json, summary_text, now, user_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO users (id, display_name, collected, profile, summary, "
+                    "summary_upto, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, display_name, collected_json, profile_json, summary_text, 0, now, now),
+                )
+        return user_id
+
+    def get_user(self, user_id: str):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_users(self, limit: int = 50):
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users ORDER BY updated_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_user_memory(
+        self,
+        user_id: str,
+        summary=None,
+        conversation_summary=None,
+        conversation_profile=None,
+        profile=None,
+        summary_upto=None,
+    ):
+        """更新用户级画像 / 对话摘要 / 采集摘要 / 已摘要消息 id。"""
+        fields = []
+        values = []
+        if summary is not None:
+            fields.append("summary = ?")
+            values.append(summary)
+        if conversation_summary is not None:
+            fields.append("conversation_summary = ?")
+            values.append(conversation_summary)
+        if conversation_profile is not None:
+            fields.append("conversation_profile = ?")
+            values.append(conversation_profile)
+        if profile is not None:
+            fields.append("profile = ?")
+            values.append(profile)
+        if summary_upto is not None:
+            fields.append("summary_upto = ?")
+            values.append(summary_upto)
+        if not fields:
+            return
+        fields.append("updated_at = ?")
+        values.append(_now())
+        values.append(user_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values
+            )
+
+    def bind_session_user(self, session_id: str, user_id: str) -> None:
+        """把会话绑定到已有用户，使记忆跨会话复用。"""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET user_id = ?, updated_at = ? WHERE id = ?",
+                (user_id, _now(), session_id),
+            )
 
     # ── 消息 ──
 

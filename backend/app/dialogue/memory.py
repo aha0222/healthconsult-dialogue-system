@@ -11,6 +11,13 @@ import logging
 import re
 
 from ..config import Settings, get_settings
+from ..profile import (
+    PROFILE_KEYS,
+    PROFILE_LABELS,
+    build_known_info,
+    load_json_dict,
+    merge_profiles,
+)
 from ..storage import Database
 from .llm_client import LLMClient
 from .markers import append_marker
@@ -37,14 +44,6 @@ MEMORY_PROMPT = """你是一个长期记忆维护器，负责把老人与陪护�
 {conversation}
 """
 
-PROFILE_KEYS = ["conditions", "medications", "family", "preferences", "notes"]
-PROFILE_LABELS = {
-    "conditions": "慢病/健康状况",
-    "medications": "用药",
-    "family": "家属",
-    "preferences": "偏好",
-    "notes": "其他",
-}
 ROLE_LABELS = {"user": "老人", "assistant": "小暖"}
 
 
@@ -115,7 +114,7 @@ class MemoryManager:
         self.llm = llm or LLMClient(self.settings)
 
     def prepare(self, session_id: str) -> dict:
-        """返回 {history, memory_block, summary, profile}。"""
+        """返回 {history, memory_block, summary, profile, user_id}。"""
         session = self.db.get_session(session_id) or {}
         all_messages = self.db.get_messages(session_id)
 
@@ -138,12 +137,44 @@ class MemoryManager:
             if m["role"] == "assistant":
                 content = append_marker(content, m.get("risk"), m.get("scenes"))
             history.append({"role": m["role"], "content": content})
+
+        user = (
+            self.db.get_user(session.get("user_id")) if session.get("user_id") else None
+        )
+        if user:
+            collected = load_json_dict(user.get("collected"))
+            merged = merge_profiles(
+                load_json_dict(user.get("profile")),
+                load_json_dict(user.get("conversation_profile")),
+            )
+            conversation_summary = user.get("conversation_summary") or ""
+            return {
+                "history": history,
+                "memory_block": build_known_info(merged, collected, conversation_summary),
+                "summary": conversation_summary,
+                "profile": merged,
+                "user_id": user["id"],
+            }
+
         return {
             "history": history,
             "memory_block": build_memory_block(summary, profile),
             "summary": summary,
             "profile": profile,
+            "user_id": None,
         }
+
+    def known_info_for_user(self, user) -> str:
+        """为尚未产生对话记忆的新会话组装用户级「已知信息」。"""
+        if not user:
+            return ""
+        collected = load_json_dict(user.get("collected"))
+        merged = merge_profiles(
+            load_json_dict(user.get("profile")),
+            load_json_dict(user.get("conversation_profile")),
+        )
+        conversation_summary = user.get("conversation_summary") or ""
+        return build_known_info(merged, collected, conversation_summary)
 
     def _refresh(self, session_id, session, all_messages):
         summary_upto = session.get("summary_upto") or 0
@@ -153,9 +184,23 @@ class MemoryManager:
         if not to_summarize:
             return
 
+        user = (
+            self.db.get_user(session.get("user_id")) if session.get("user_id") else None
+        )
+        if user:
+            existing_summary = user.get("conversation_summary") or ""
+            existing_profile = load_json_dict(user.get("conversation_profile"))
+        else:
+            existing_summary = session.get("summary") or ""
+            existing_profile = load_profile(session.get("profile"))
+
         prompt = MEMORY_PROMPT.format(
-            summary=session.get("summary") or "（无）",
-            profile=session.get("profile") or "（无）",
+            summary=existing_summary or "（无）",
+            profile=(
+                json.dumps(existing_profile, ensure_ascii=False)
+                if existing_profile
+                else "（无）"
+            ),
             conversation=_format_conversation(to_summarize),
         )
         raw = self.llm.chat(
@@ -167,9 +212,18 @@ class MemoryManager:
         if not parsed:
             return
 
+        # 会话级滚动摘要（无绑定用户的会话据此注入；保持既有行为）
         self.db.update_memory(
             session_id,
             summary=parsed["summary"],
             profile=json.dumps(parsed["profile"], ensure_ascii=False),
             summary_upto=to_summarize[-1]["id"],
         )
+
+        # 用户级：持久化对话提炼画像与对话摘要（自述画像存 profile，互不覆盖）
+        if user:
+            self.db.update_user_memory(
+                user["id"],
+                conversation_profile=json.dumps(parsed["profile"], ensure_ascii=False),
+                conversation_summary=parsed["summary"],
+            )

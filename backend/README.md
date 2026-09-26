@@ -22,6 +22,7 @@ backend/
 │   ├── cache.py              # 回复缓存（TTL + LRU）
 │   ├── schemas.py            # 请求/响应模型
 │   ├── storage.py            # SQLite 会话/消息/审计 + schema 迁移
+│   ├── profile.py            # 采集字段映射、脱敏、画像合并、已知信息组装
 │   ├── paths.py              # 仓库根 / skill 目录定位
 │   ├── dialogue/
 │   │   ├── orchestrator.py   # 对话编排：组装 prompt -> LLM -> 解析 -> 兜底
@@ -95,6 +96,13 @@ python -m venv .venv
 | `CACHE_ENABLED` | 是否开启回复缓存 | `0` |
 | `CACHE_TTL_SECONDS` | 缓存有效期秒数 | `300` |
 | `CACHE_MAX_SIZE` | 缓存最大条目数 | `256` |
+| `RUNTIME_CLASSIFIER` | 运行时用关键词快路径预判 risk/scenes | `1` |
+| `RUNTIME_RETRIEVAL` | 非高风险时检索相似语料注入 prompt | `1` |
+| `PROMPT_COMPACT` | 典型低风险用精简 prompt 省 token | `1` |
+| `EXEMPLAR_CORPUS_PATH` | 运行时检索用带回复语料（空则用默认 `v0.3.0_corpus500.jsonl`） | 空 |
+| `EXEMPLAR_EMBEDDING_BACKEND` | 运行时检索嵌入后端 `hash`/`local`/`api` | `hash` |
+| `RETRIEVER_TOP_K` / `RERANKER_TOP_N` | 召回数 / 精排后交给 LLM 的样例数 | `10` / `3` |
+| `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | 离线分类器嵌入后端与模型 | `local` / `BAAI/bge-small-zh-v1.5` |
 
 ## 性能与成本
 
@@ -111,6 +119,14 @@ python -m venv .venv
 - **画像**（profile）：结构化字段 `conditions / medications / family / preferences / notes`。
 
 二者以 schema v3 存在 `sessions` 表，续接会话时作为「历史摘要」「已知信息」注入 system prompt。摘要更新失败不阻断对话。当前画像按会话存储，跨会话复用需配合用户身份（见计划）。
+
+此外，欢迎流程采集的资料通过 `POST /api/profile` 写入 `users` 表（schema v5/v6/v7），成为跨会话复用的
+「用户级权威档案」。`dialogue/profile.py` 负责采集字段 → 画像映射、敏感字段脱敏（紧急联系电话只保留首尾位）、
+用户自述画像与对话提炼画像的合并（冲突以用户自述为准）。会话绑定用户（`sessions.user_id`）后，
+`memory.py` 把自述画像存 `users.profile`、对话提炼画像存 `users.conversation_profile`、对话摘要存
+`users.conversation_summary`（与采集摘要 `users.summary` 分离），读取时 `merge_profiles` 合成权威画像，
+使同一用户新开会话也能复用此前学到的家属、偏好、新基础病等；注入 system prompt 时只使用一份合并后的
+「【已知信息】」，并统一标注「未经医疗核实」。
 
 此外，续接时会用 `markers.append_marker` 为历史助手回复补回场景标记（库里存的是剥离后的正文），保证模型上下文格式一致，避免模型模仿"无标记"而漏标。
 
@@ -192,8 +208,23 @@ set BACKEND_API_KEY=your-secret
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/sessions` | 会话列表（含消息数） |
-| `GET` | `/api/sessions/{id}` | 会话详情、全部消息，以及 `summary` / `profile` |
+| `GET` | `/api/sessions/{id}` | 会话详情、全部消息，以及 `summary` / `conversation_summary` / `profile` / `collected` / `user_id` |
 | `DELETE` | `/api/sessions/{id}` | 删除会话 |
+
+### 用户档案接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/profile` | 创建或更新用户档案（采集的 10 项资料），返回脱敏后的 `collected`、结构化 `profile` 与 `summary` |
+| `GET` | `/api/users` | 用户档案列表 |
+| `GET` | `/api/users/{id}` | 单个用户档案（敏感字段已脱敏） |
+
+`POST /api/profile` 请求体字段与前端采集一一对应：`user_id`（可选，缺省则新建）、`name`、`age`、
+`living`、`conditions`、`medications`、`allergies`、`healthConcerns`、`mobility`、
+`emergencyContact`、`emergencyPhone`。后端会先脱敏（紧急联系电话只保留首尾位），
+再生成画像与摘要并立即写入记忆，使后续会话（携带 `user_id`）立刻生效。
+返回体包含 `collected`（脱敏后的采集资料）、`profile`（结构化画像）、`summary`（采集摘要）
+与 `conversation_summary`（对话提炼摘要，尚未对话时为空）。
 
 ### 审计接口
 
@@ -223,6 +254,5 @@ set BACKEND_API_KEY=your-secret
 
 ## 计划
 
-1. 会话标题与用户身份。
-2. 前端会话列表 / 历史回看。
-3. 端到端集成测试。
+1. 会话标题自动生成。
+2. 端到端集成测试。

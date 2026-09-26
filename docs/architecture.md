@@ -15,9 +15,11 @@ skill 是声明式的：它只规定「怎么答」，不包含任何可执行�
 
 ```
 用户输入
-  -> 后端载入 skill（SKILL.md 作为 system prompt，叠加人格覆盖）
+  -> classifier 关键词快路径预判 (risk, scenes)（0 token）
+  -> 非高风险：Retriever + Reranker 取相似语料；典型低风险用精简 prompt
+  -> 后端载入 skill（完整/精简 SKILL.md 作为 system prompt，叠加人格覆盖与检索样例）
   -> 调用 LLM 生成回复，要求末尾带双维度标签
-  -> 解析并剥离标记，得到 (回复正文, 风险等级, 场景列表)
+  -> 解析并剥离标记，得到 (回复正文, 风险等级, 场景列表)；漏标时用预判兜底
   -> safety_checker.check_reply 兜底快检
   -> 命中硬红线时，替换为按主场景/风险等级预置的安全兜底话术
   -> 返回前端展示
@@ -31,14 +33,37 @@ skill 是声明式的：它只规定「怎么答」，不包含任何可执行�
 续接时还会用 `markers.append_marker` 把历史助手回复的双维度标签还原，避免模型模仿"无标记"格式而漏标。
 LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜底分级。
 
+## 用户级档案与权威记忆
+
+欢迎流程采集的 10 项资料不再只停留在浏览器 `localStorage`，而是通过 `POST /api/profile`
+写入后端 `users` 表（schema v5/v6/v7），成为跨会话复用的「用户级权威档案」：
+
+- `collected`：采集的 10 项资料（敏感字段已脱敏，紧急联系电话只保留首尾位、中间遮蔽）。
+- `profile`：由采集字段映射出的「自述画像」（`conditions / medications / notes`，不含对话提炼）。
+- `conversation_profile`：由对话提炼出的「对话画像」（`conditions / medications / family / preferences / notes`）。
+- `summary`：由采集字段生成的确定性摘要（采集摘要）。
+- `conversation_summary`：对话提炼的滚动摘要（对话摘要），与采集摘要分离、互不覆盖。
+
+`dialogue/profile.py` 是唯一事实源：负责「采集字段 → 画像」映射、敏感字段脱敏、
+用户自述画像与对话提炼画像的合并（去重，冲突以用户自述为准），以及组装唯一注入
+system prompt 的「【已知信息】」块。
+
+`dialogue/memory.py` 在会话绑定用户（`sessions.user_id`）后，把对话提炼画像持久化到
+`users.conversation_profile`、对话摘要持久化到 `users.conversation_summary`，读取时用
+`merge_profiles(profile, conversation_profile)`（用户自述优先、去重）合成权威画像，使同一用户
+新开会话也能读到此前对话里新学到的家属、偏好、新基础病等。注入 system prompt 时只使用一份合并后的
+「【已知信息】」，不再同时注入 `user_profile` 与 `memory_block` 两份重复、冲突的信息。所有已知信息
+统一标注「未经医疗核实」，不得据此诊断、开药、调药或判断是否就医。
+
 ## 实现状态
 
 | 组件 | 状态 |
 |------|------|
 | `backend/app/dialogue/orchestrator.py` | 已实现（编排 + 兜底 + 流式） |
-| `backend/app/main.py`（HTTP API） | 已实现（chat / stream / sessions / audit / health / personalities） |
-| `backend/app/storage.py` | 已实现（SQLite 会话/消息/审计/记忆 + schema 迁移） |
-| `backend/app/dialogue/memory.py` | 已实现（长会话滚动摘要 + 长期画像） |
+| `backend/app/main.py`（HTTP API） | 已实现（chat / stream / sessions / users / profile / audit / health / personalities） |
+| `backend/app/storage.py` | 已实现（SQLite 会话/消息/审计/记忆/用户档案 + schema 迁移） |
+| `backend/app/dialogue/memory.py` | 已实现（长会话滚动摘要 + 长期画像 + 用户级合并） |
+| `backend/app/profile.py` | 已实现（采集字段映射、脱敏、画像合并、已知信息组装） |
 | `backend/app/sampling.py` | 已实现（线上样本脱敏导出） |
 | `backend/app/evaluation.py` | 已实现（风险分级评测） |
 | `backend/app/dialogue/routing.py` | 已实现（按风险选择模型） |
@@ -93,32 +118,40 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 - `backend/app/evaluation.py` + `tools/eval_risk.py`：固定评测集 `backend/tests/eval/risk_cases.jsonl` 上给风险分级器打分；`--mode local` 用本地兜底分级器（确定性，CI 可跑），`--mode llm` 走真实编排链路。
 - SFT 迭代：`generate_candidates` → `clean_candidates` → `validate_outputs` → `generate_manual_review_list` → 版本化入库（现为 `v0.2.3`）。
 
-## 场景/风险分级与语料检索（一期：离线工具）
+## 场景/风险分级与语料检索（运行时已接入）
 
-两步对话的第一步是**先定风险等级与场景类别**，用于后续按标签检索语料、提升回复质量。
+对话前先用关键词/规则快路径**预判风险等级与场景类别**，再据此选 prompt 形态、路由模型、注入检索样例。
 
 ```
 用户输入
-  -> classifier 关键词/规则快路径（<1ms，0 token）
-       命中且无歧义 -> 直接得 (risk, scenes)
-       未命中/歧义/冲突 -> LLM 兜底分类（Retriever 召回 + Reranker 精排的 Top-N 相似语料作少样本）
-  -> 第二步：按 (risk, scenes) 检索语料，注入回复生成 prompt（语料库后续搭建）
+  -> classifier 关键词/规则快路径（<1ms，0 token）预判 (risk, scenes)
+  -> 非高风险：Retriever 召回 Top-K → Reranker 精排 Top-N（带回复的相似语料）
+       典型低风险（R0/R1）改用「精简 prompt」省 token；R2a 用完整 prompt + 样例
+  -> 高风险（R3/R2b）或歧义：完整 SKILL.md + 强模型，且不注入样例（安全优先）
+  -> 调用 LLM 生成（要求末尾带双维度标记）
+  -> _finalize 解析；若 LLM 漏标，用分类器预判的 risk/scenes 兜底
 ```
 
 - `classifier.py`：快路径复用 `safety_checker.detect_scenes` 与 `markers.infer_tags_local`；
   歧义判定含"无场景命中 / 风险与场景矛盾 / 仅泛化词命中 / 多高风险场景并存"。
+  运行时**只走快路径**（`allow_llm=False`），不额外调 LLM；歧义交给主生成 LLM 自行判定。
 - `retriever.py`：嵌入后端可插拔，保证可移植——`local`（sentence-transformers，权重在用户缓存目录）、
   `api`（OpenAI 兼容 `/embeddings`，零下载）、`hash`（纯 Python，零依赖零下载，测试/离线兜底）；
-  local/api 不可用时自动回退 hash。语料为空时返回空列表，分类退回快路径 + LLM 兜底，功能不受影响。
+  不可用时自动回退 hash。运行时检索默认 `hash`（`EXEMPLAR_EMBEDDING_BACKEND`），零下载、低延迟。
 - `reranker.py`：向量相似度 + 字符 n-gram + 关键词/标签命中的混合打分，只保留 Top-N(2~5) 交给 LLM。
-- 语料：`backend/app/dialogue/corpus/scene_risk_corpus.jsonl`（当前空占位），
-  用 `tools/build_scene_risk_corpus.py` 从现有标注数据生成种子（稳定编号 C001…），正式语料后续并入。
+- `prompt.py`：`load_compact_prompt()` 按二级标题从 SKILL.md 抽取规范性小节（保留 1-6/8/9/13/15），
+  去掉静态正/反示例，由检索到的真实语料替代示例——以 SKILL.md 为单一事实源。
+- 语料：`backend/app/dialogue/corpus/scene_risk_corpus.jsonl`（**569 条**，稳定编号 C001…），
+  由 `tools/build_scene_risk_corpus.py` 从训练语料 `v0.3.0_corpus500.jsonl`（498 条）投影派生；
+  运行时检索样例用带回复的 `v0.3.0_corpus500.jsonl`（`EXEMPLAR_CORPUS_PATH`）。
+- 开关：`RUNTIME_CLASSIFIER` / `RUNTIME_RETRIEVAL` / `PROMPT_COMPACT`（默认均开启）。
 - 工具：`tools/classify_scene_risk.py`（CLI，`--mode auto|keyword|llm`、`--setup` 预热）、
   `tools/eval_classifier.py`（快路径覆盖率 / 兜底率 / 准确率 / token 估算）。
 - 依赖：`tools/requirements-classifier.txt`（仅 `local` 后端需要），向量缓存写入 `.cache/`（已 gitignore）。
 
 评测参考（`risk_cases.jsonl` 21 条，hash 后端）：快路径覆盖约 81%、兜底率约 19%，
-风险准确率与场景 F1 均为 100%；兜底单次 prompt 约 350 token，对照完整 `SKILL.md` 约 7000 token。
+风险准确率与场景 F1 均为 100%。精简 prompt 将 system prompt 从约 7000 token 降到约 5300 token；
+典型低风险再注入 3 条真实样例（约 +500 token），净省约 10–15% system prompt token。
 
 ## 人格选型评测
 
