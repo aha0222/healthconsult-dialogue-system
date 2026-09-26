@@ -31,7 +31,8 @@ from backend.app.safety.safety_checker import (
     _extract_fields,
 )
 
-# 来源文件（按固定顺序，保证编号稳定）
+# 来源文件（按固定顺序，保证编号稳定）。
+# 新增来源一律**追加到末尾**，否则既有条目的 id 会整体错位。
 SOURCES = [
     ("risk_cases", REPO_ROOT / "backend" / "tests" / "eval" / "risk_cases.jsonl"),
     ("redline_cases", REPO_ROOT / "backend" / "tests" / "redline_cases.jsonl"),
@@ -44,6 +45,14 @@ SOURCES = [
         "paired_messages",
         REPO_ROOT / "skills" / "healthconsult-assistant-skill"
         / "examples" / "paired_health_messages.jsonl",
+    ),
+    # 训练语料是 Retriever 语料的主要来源（约 87%），必须在这里列出。
+    # 早先只能靠 --include 手动传入，一旦有人不带参数重跑，这 496 条会被
+    # 静默冲掉且不报错——语料看着还在，检索质量却退回关键词兜底。
+    (
+        "corpus500",
+        REPO_ROOT / "skills" / "healthconsult-assistant-skill"
+        / "examples" / "corpus" / "v0.3.0_corpus500.jsonl",
     ),
 ]
 
@@ -122,16 +131,30 @@ def write_corpus(path, entries):
 def main():
     parser = argparse.ArgumentParser(description="构建场景/风险标注语料（种子）")
     parser.add_argument("--output", default=str(DEFAULT_CORPUS_PATH), help="输出 JSONL 路径")
+    parser.add_argument("--include", action="append", default=[],
+                        help="额外并入的语料 JSONL（可重复指定），追加在默认来源之后。"
+                             "用于把新建的语料库并入 Retriever 语料")
+    parser.add_argument("--source-label", default="included",
+                        help="--include 文件的来源标记（写入 source 字段）")
     parser.add_argument("--stdout", action="store_true", help="打印到标准输出，不写文件")
     args = parser.parse_args()
 
-    entries = build_entries()
+    sources = list(SOURCES)
+    for i, path in enumerate(args.include):
+        label = args.source_label if len(args.include) == 1 else f"{args.source_label}_{i + 1}"
+        sources.append((label, Path(path)))
+
+    entries = build_entries(sources)
     if args.stdout:
         for entry in entries:
             print(json.dumps(entry, ensure_ascii=False))
     else:
         write_corpus(args.output, entries)
         print(f"[OK] 写入 {len(entries)} 条语料 → {args.output}")
+        # 按来源统计，便于确认 --include 是否真的并进来了
+        from collections import Counter as _Counter
+        by_src = _Counter(e.get("source", "?") for e in entries)
+        print("     来源分布：" + "  ".join(f"{k}×{v}" for k, v in sorted(by_src.items())))
 
 
 if __name__ == "__main__":

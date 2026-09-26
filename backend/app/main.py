@@ -37,7 +37,16 @@ from .dialogue.prompt import (
 from .dialogue.taxonomy import RISK_LABELS, SCENE_GROUPS, SCENE_LABELS, RISK_LEVELS, SCENES
 from .logging_config import log_event, setup_logging
 from .paths import validate_paths
+from .profile import (
+    build_collected_summary,
+    build_known_info_from_text,
+    load_json_dict,
+    map_collected_to_profile,
+    merge_profiles,
+    redact_collected,
+)
 from .safety.semantic_checker import SemanticChecker
+from .sampling import redact
 from .schemas import (
     AuditRecord,
     ChatRequest,
@@ -45,10 +54,12 @@ from .schemas import (
     DeleteResponse,
     HealthResponse,
     PersonalityInfo,
+    ProfileRequest,
     SessionDetail,
     SessionMessage,
     SessionSummary,
     TaxonomyResponse,
+    UserRecord,
 )
 from .security import get_client_ip, rate_limit, require_api_key
 from .storage import Database
@@ -138,20 +149,50 @@ async def access_log_middleware(request: Request, call_next):
 
 
 def _resolve_context(db: Database, memory: MemoryManager, request: ChatRequest):
-    """返回 (session_id, history, memory_block)。
+    """返回 (session_id, history, known_info)。
 
-    带 session_id 时从库里取历史并注入长期记忆；否则新建会话。
+    带 session_id 时从库里取历史并注入「合并后的已知信息」；否则新建会话。
+    用户级档案（采集资料 + 对话提炼画像）合并为唯一来源，冲突以用户自述为准。
     """
     if request.session_id:
         session = db.get_session(request.session_id)
         if not session:
             raise HTTPException(status_code=404, detail="会话不存在")
+        if request.user_id and not session.get("user_id"):
+            db.bind_session_user(request.session_id, request.user_id)
         context = memory.prepare(request.session_id)
         return request.session_id, context["history"], context["memory_block"]
 
-    session_id = db.create_session(normalize_personality(request.personality))
+    user_id = request.user_id
+    session_id = db.create_session(normalize_personality(request.personality), user_id=user_id)
     history = [m.model_dump() for m in request.history]
-    return session_id, history, ""
+    if user_id:
+        user = db.get_user(user_id)
+        known_info = memory.known_info_for_user(user) if user else ""
+    elif request.user_profile:
+        known_info = build_known_info_from_text(redact(request.user_profile))
+    else:
+        known_info = ""
+    return session_id, history, known_info
+
+
+def _user_record(db: Database, user_id: str) -> UserRecord:
+    user = db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return UserRecord(
+        id=user["id"],
+        display_name=user.get("display_name") or "",
+        collected=load_json_dict(user.get("collected")),
+        profile=merge_profiles(
+            load_json_dict(user.get("profile")),
+            load_json_dict(user.get("conversation_profile")),
+        ),
+        summary=user.get("summary") or "",
+        conversation_summary=user.get("conversation_summary") or "",
+        created_at=user["created_at"],
+        updated_at=user["updated_at"],
+    )
 
 
 def _record_audit(db, session_id, request, result, latency_ms):
@@ -227,7 +268,11 @@ def chat(
     if is_cacheable_request(
         request.message, request.history, request.session_id, settings
     ):
-        cache_key = cache.make_key(request.personality, request.message)
+        cache_key = cache.make_key(
+            request.personality,
+            request.message,
+            memory_block or "",
+        )
         cached = cache.get(cache_key)
         if cached is not None:
             result = dict(cached)
@@ -345,21 +390,84 @@ def get_session(session_id: str, db: Database = Depends(get_db)):
         )
         for m in db.get_messages(session_id)
     ]
-    profile = None
-    if session.get("profile"):
-        try:
-            profile = json.loads(session["profile"])
-        except (ValueError, TypeError):
-            profile = None
+    profile = load_json_dict(session.get("profile"))
+    collected = None
+    summary = session.get("summary")
+    conversation_summary = None
+    user_id = session.get("user_id")
+    if user_id:
+        user = db.get_user(user_id)
+        if user:
+            collected = load_json_dict(user.get("collected"))
+            profile = merge_profiles(
+                load_json_dict(user.get("profile")),
+                load_json_dict(user.get("conversation_profile")),
+            )
+            conversation_summary = user.get("conversation_summary")
     return SessionDetail(
         id=session["id"],
         personality=session["personality"],
         created_at=session["created_at"],
         updated_at=session["updated_at"],
-        summary=session.get("summary"),
+        user_id=user_id,
+        summary=summary,
+        conversation_summary=conversation_summary,
         profile=profile,
+        collected=collected,
         messages=messages,
     )
+
+
+@app.post(
+    "/api/profile",
+    response_model=UserRecord,
+    dependencies=[Depends(require_api_key)],
+)
+def save_profile(request: ProfileRequest, db: Database = Depends(get_db)):
+    """接收前端采集的结构化资料，脱敏落库，并立即生成画像与摘要。"""
+    collected = redact_collected(
+        {
+            "name": request.name,
+            "age": request.age,
+            "living": request.living,
+            "conditions": request.conditions,
+            "medications": request.medications,
+            "allergies": request.allergies,
+            "healthConcerns": request.healthConcerns,
+            "mobility": request.mobility,
+            "emergencyContact": request.emergencyContact,
+            "emergencyPhone": request.emergencyPhone,
+        }
+    )
+    display_name = collected.get("name") or "老人"
+    profile = map_collected_to_profile(collected)
+    summary = build_collected_summary(collected)
+    user_id = db.upsert_user(
+        request.user_id,
+        display_name=display_name,
+        collected=collected,
+        profile=profile,
+        summary=summary,
+    )
+    return _user_record(db, user_id)
+
+
+@app.get(
+    "/api/users",
+    response_model=list[UserRecord],
+    dependencies=[Depends(require_api_key)],
+)
+def list_users(limit: int = 50, db: Database = Depends(get_db)):
+    return [_user_record(db, row["id"]) for row in db.list_users(limit=limit)]
+
+
+@app.get(
+    "/api/users/{user_id}",
+    response_model=UserRecord,
+    dependencies=[Depends(require_api_key)],
+)
+def get_user(user_id: str, db: Database = Depends(get_db)):
+    return _user_record(db, user_id)
 
 
 @app.delete(

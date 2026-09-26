@@ -248,6 +248,11 @@ body[data-risk="R2b"] {
   color: #7a3208;
 }
 
+/* 命中安全兜底时，给回复气泡加一条危险色左边线，提示该回复已触发保底话术 */
+.msg--fallback .bubble {
+  border-left: 4px solid var(--c-danger);
+}
+
 /* ── 小暖回复内的 Markdown 排版 ───────────────────────────── */
 .bubble > :first-child { margin-top: 0; }
 .bubble > :last-child { margin-bottom: 0; }
@@ -625,4 +630,98 @@ body[data-risk="R2b"] {
     width: 2.75rem;
     height: 2.75rem;
   }
+}
+
+/* ── 小暖记得的您（记忆面板） ─────────────────────────────── */
+.memory-panel {
+  margin: 0 auto var(--space-4);
+  max-width: 42rem;
+  background: linear-gradient(180deg, var(--c-paper) 0%, var(--c-paper-warm) 150%);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3) var(--space-4);
+}
+
+.memory-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.memory-panel__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--c-primary-soft);
+  font-size: 1.25rem;
+}
+
+.memory-panel__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-panel__title {
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+.memory-panel__headline {
+  color: var(--c-ink-muted);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-panel__btn {
+  min-height: 2.75rem;
+}
+
+/* ── 记忆弹窗结构化展示 ──────────────────────────────────── */
+.memory-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.memory-section h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  color: var(--c-primary-strong);
+  margin: 0;
+}
+
+.memory-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--c-cream);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+}
+
+.memory-row__label {
+  flex: none;
+  width: 6.5rem;
+  font-weight: 700;
+  color: var(--c-ink-soft);
+}
+
+.memory-row__value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.memory-summary {
+  color: var(--c-ink-soft);
+  line-height: var(--lh-body);
+  margin: 0;
 }

@@ -143,6 +143,14 @@ INTERNAL_LEAK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 流式增量守护用的「内部规则/术语泄露」字面量（不含风险代码与标记，避免误伤尾部标记）
+INTERNAL_LEAK_TERMS_RE = re.compile(
+    r'system\s*prompt|系统提示|提示词|内部规则|内部机制'
+    r'|自检清单|关键词清单|开发者模式|skill\.md'
+    r'|风险等级|场景分类|场景类别|分类逻辑|判断逻辑|判断依据|推理过程',
+    re.IGNORECASE,
+)
+
 ENGLISH_RESIDUAL_TERMS = [
     "blood pressure", "diabetes", "medication", "diagnosis",
     "symptom", "treatment", "patient", "doctor", "hospital"
@@ -259,6 +267,15 @@ def has_internal_leak(text):
     return bool(INTERNAL_LEAK_RE.search(text or ""))
 
 
+def detect_internal_leak_literal(text):
+    """轻量增量内部泄露检测：仅匹配内部术语字面量，供流式逐段守护复用。
+
+    与 has_internal_leak 同源，但刻意排除风险代码与 `[RISK:...]` / `[SCENE:...]`
+    标记，避免把回复末尾尚未剥离的标记误判为泄露。
+    """
+    return bool(INTERNAL_LEAK_TERMS_RE.search(text or ""))
+
+
 def has_english_residual(text):
     return any(p.lower() in text.lower() for p in ENGLISH_RESIDUAL_TERMS)
 
@@ -279,8 +296,18 @@ def detect_scenes(text):
     return found[:MAX_SCENES]
 
 
+# 用药场景的强信号词：只有出现这些词才认定为用药场景，避免「吃多少肉 / 怎么吃」
+# 这类泛化词被误判成用药（进而误触发「须联系医生/药师」检查、甚至误兜底）。
+_MEDICATION_STRONG = (
+    "药", "剂量", "漏服", "忘吃", "补药", "换药", "停药", "加药", "减药",
+    "饭前", "饭后", "服药", "处方",
+)
+
+
 def is_medication_scene(user_text, scene_text=""):
     combined = f"{user_text} {scene_text}"
+    if not _contains_any(combined, _MEDICATION_STRONG):
+        return False
     return "S2" in detect_scenes(combined) or _contains_any(combined, SCENE_KEYWORDS["S2"])
 
 
@@ -365,6 +392,17 @@ def check_reply(reply, risk=None, scenes=None, user_text=None):
     return violations
 
 
+def detect_forbidden_literal(text):
+    """轻量增量硬红线检测：纯字面量命中，供流式逐段守护复用。
+
+    与 check_reply 共用同一套 FORBIDDEN_LITERALS，并先做否定句式过滤，
+    避免「不要自己加药」这类安全警告被误判；仅做本地、确定性判断，不产生
+    额外 LLM 调用。
+    """
+    cleaned = clean_negations(text or "")
+    return any(phrase in cleaned for phrase in FORBIDDEN_LITERALS)
+
+
 def validate_sample(sample, mode="generated_sft"):
     """
     校验单个样本，返回 (sample_id, violations_list)。
@@ -373,8 +411,8 @@ def validate_sample(sample, mode="generated_sft"):
     severity: "fatal" | "warning"
 
     mode:
-      "source_sample"  — 从已有数据提取，warning 宽松
-      "generated_sft"  — 审核新生成的候选数据，warning 视为 fatal
+      "source_sample"  — 从已有数据提取，必需动作缺失记 warning，宽松
+      "generated_sft"  — 审核新生成的候选数据，必需动作缺失记 fatal，更严格
       "keyword"        — 通用关键词模式
     """
     violations = []
@@ -410,13 +448,15 @@ def validate_sample(sample, mode="generated_sft"):
     for v in reply_violations:
         violations.append(("fatal", v))
 
-    # ── 场景必需动作校验（双维度 · 场景驱动）──
+    # ── 场景必需动作校验（双维度 · 以声明场景为准）──
+    # 只用样本「声明的 scenes」判定必需动作；detect_scenes 的关键词命中若未在
+    # scenes 中声明，仅降级为 warning。否则纯关键词误报会把正常样本判成 fatal
+    # （如「前阵子摔了一跤，问饮食搭配」被判为急症缺 120）。
     combined = f"{user} {scene}"
-    provided = normalize_scenes(scenes)
+    declared = normalize_scenes(scenes)
     detected = detect_scenes(combined)
-    all_scenes = list(dict.fromkeys(provided + detected))[:MAX_SCENES]
 
-    for sc in all_scenes:
+    for sc in declared:
         requirement = SCENE_REQUIRED_ACTIONS.get(sc)
         if not requirement:
             continue
@@ -425,7 +465,17 @@ def validate_sample(sample, mode="generated_sft"):
             severity = "warning" if mode == "source_sample" else "fatal"
             violations.append((severity, reason))
 
-    if "S2" in all_scenes:
+    for sc in detected:
+        if sc in declared:
+            continue
+        requirement = SCENE_REQUIRED_ACTIONS.get(sc)
+        if not requirement:
+            continue
+        keywords, reason = requirement
+        if not _contains_any(assistant, keywords):
+            violations.append(("warning", f"{reason}_undeclared_scene"))
+
+    if "S2" in declared:
         if not has_medication_confirmation(assistant):
             severity = "warning" if mode == "source_sample" else "fatal"
             violations.append((severity, "medication_missing_doctor_or_pharmacist_confirmation"))

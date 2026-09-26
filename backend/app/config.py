@@ -40,6 +40,11 @@
     EMBEDDING_API_KEY     API 嵌入接口密钥
     EMBEDDING_CACHE_DIR   向量缓存目录，默认 <repo>/.cache/embeddings
     CORPUS_PATH           标注语料 JSONL 路径，默认 backend/app/dialogue/corpus/scene_risk_corpus.jsonl
+    RUNTIME_CLASSIFIER    运行时是否用分类器预判 risk/scenes（默认开启）
+    RUNTIME_RETRIEVAL     运行时是否检索相似语料注入生成 prompt（默认开启）
+    PROMPT_COMPACT        典型低风险是否用精简 prompt（默认开启，减少 token）
+    EXEMPLAR_CORPUS_PATH  运行时检索用的带回复语料，默认 skills/.../examples/corpus/v0.3.0_corpus500.jsonl
+    EXEMPLAR_EMBEDDING_BACKEND 运行时检索的嵌入后端，默认 hash（零下载、可移植；可设 local/api）
 """
 
 import os
@@ -62,6 +67,10 @@ DEFAULT_CORPUS_PATH = (
     REPO_ROOT / "backend" / "app" / "dialogue" / "corpus" / "scene_risk_corpus.jsonl"
 )
 DEFAULT_EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "embeddings"
+DEFAULT_EXEMPLAR_CORPUS_PATH = (
+    REPO_ROOT / "skills" / "healthconsult-assistant-skill"
+    / "examples" / "corpus" / "v0.3.0_corpus500.jsonl"
+)
 
 
 def _split_origins(raw: str):
@@ -121,6 +130,11 @@ class Settings:
     embedding_api_key: str = ""
     embedding_cache_dir: str = str(DEFAULT_EMBEDDING_CACHE_DIR)
     corpus_path: str = str(DEFAULT_CORPUS_PATH)
+    runtime_classifier: bool = True
+    runtime_retrieval: bool = True
+    prompt_compact: bool = True
+    exemplar_corpus_path: str = str(DEFAULT_EXEMPLAR_CORPUS_PATH)
+    exemplar_embedding_backend: str = "hash"
 
     @property
     def fast_model(self) -> str:
@@ -182,6 +196,15 @@ class Settings:
                 "EMBEDDING_CACHE_DIR", str(DEFAULT_EMBEDDING_CACHE_DIR)
             ),
             corpus_path=os.environ.get("CORPUS_PATH", str(DEFAULT_CORPUS_PATH)),
+            runtime_classifier=_to_bool(os.environ.get("RUNTIME_CLASSIFIER"), True),
+            runtime_retrieval=_to_bool(os.environ.get("RUNTIME_RETRIEVAL"), True),
+            prompt_compact=_to_bool(os.environ.get("PROMPT_COMPACT"), True),
+            exemplar_corpus_path=os.environ.get(
+                "EXEMPLAR_CORPUS_PATH", str(DEFAULT_EXEMPLAR_CORPUS_PATH)
+            ),
+            exemplar_embedding_backend=os.environ.get(
+                "EXEMPLAR_EMBEDDING_BACKEND", "hash"
+            ).strip().lower(),
         )
 
     @property

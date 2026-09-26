@@ -10,6 +10,108 @@
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/chat.css">
+<style>
+  /* ===== 欢迎页 ===== */
+  .onboarding {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    padding: var(--space-4);
+    background: var(--c-cream);
+    overflow-y: auto;
+  }
+
+  .onboarding__page {
+    width: min(100%, 42rem);
+    margin: auto;
+  }
+
+  .onboarding__card {
+    background: linear-gradient(180deg, var(--c-paper) 0%, var(--c-paper-warm) 150%);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    padding: clamp(var(--space-5), 5vw, var(--space-8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  .onboarding__page--welcome .onboarding__card {
+    text-align: center;
+    align-items: center;
+  }
+
+  .onboarding__avatar {
+    width: 6rem;
+    height: 6rem;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-full);
+    background: var(--c-primary-soft);
+    font-size: 3rem;
+    box-shadow: var(--shadow-warm);
+  }
+
+  .onboarding h1 {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    line-height: var(--lh-tight);
+    margin: 0;
+  }
+
+  .onboarding p {
+    color: var(--c-ink-muted);
+    font-size: var(--fs-md);
+    line-height: var(--lh-body);
+    margin: 0;
+  }
+
+  .onboarding__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    width: 100%;
+  }
+
+  .onboarding__actions--row {
+    flex-direction: row;
+  }
+
+  .onboarding__actions--row .btn {
+    flex: 1;
+  }
+
+  /* ===== 首次信息页 ===== */
+  .onboarding__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .onboarding__card .field {
+    text-align: left;
+  }
+
+  .onboarding__card textarea {
+    resize: vertical;
+    min-height: 5rem;
+  }
+
+  /* 个人信息弹窗：复用现有 dialog 组件，表单纵向排列 */
+  #profileDialog .dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  @media (max-width: 480px) {
+    .onboarding__actions--row {
+      flex-direction: column;
+    }
+  }
+</style>
 </head>
 <body>
 
@@ -36,6 +138,9 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 2.6 2.5 13.4 0 16M12 4c-2.5 2.6-2.5 13.4 0 16"/></symbol>
     <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V5h16v2M12 5v14M9 19h6"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5c2.6.3 4.5 2 4.5 4.5"/></symbol>
   </defs>
 </svg>
 
@@ -62,6 +167,12 @@
       <button class="icon-btn" type="button" id="btnNew" aria-label="开始新对话" title="新对话">
         <svg class="icon" aria-hidden="true"><use href="#i-plus"></use></svg>
       </button>
+      <button class="icon-btn" type="button" id="btnProfile" aria-label="个人信息" title="个人信息">
+        <svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>
+      </button>
+      <button class="icon-btn" type="button" id="btnMemory" aria-label="小暖记得的您" title="小暖记得的您">
+        <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg>
+      </button>
       <button class="icon-btn" type="button" id="btnSettings" aria-label="对话设置" title="设置">
         <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>
       </button>
@@ -82,6 +193,17 @@
         <span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-pill"></use></svg>用药提醒</span>
         <span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-siren"></use></svg>急症识别</span>
         <span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-chat"></use></svg>情感陪伴</span>
+      </div>
+    </section>
+
+    <section class="memory-panel" id="memoryPanel" aria-label="小暖记得的您" hidden>
+      <div class="memory-panel__head">
+        <span class="memory-panel__icon" aria-hidden="true">🌿</span>
+        <div class="memory-panel__text">
+          <span class="memory-panel__title">小暖记得的您</span>
+          <span class="memory-panel__headline" id="memoryPanelHeadline"></span>
+        </div>
+        <button class="btn btn--ghost memory-panel__btn" type="button" id="btnMemoryOpen">查看全部</button>
       </div>
     </section>
 
@@ -201,6 +323,415 @@
   </div>
 </dialog>
 
+<!-- ===== 欢迎页 ===== -->
+<div class="onboarding" id="welcomeFlow" hidden>
+  <section class="onboarding__page onboarding__page--welcome" id="welcomePage">
+    <div class="onboarding__card">
+      <div class="onboarding__avatar" aria-hidden="true">🌿</div>
+      <h1>您好，我是小暖</h1>
+      <p>很高兴陪您聊天。为了更懂您，请先简单了解一下您的情况。</p>
+      <div class="onboarding__actions">
+        <button class="btn btn--primary btn--block" type="button" id="btnStartProfile">开始使用</button>
+        <button class="btn btn--ghost btn--block" type="button" id="btnRecoverOnboard">已有档案？恢复</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 首次信息页 ===== -->
+  <section class="onboarding__page onboarding__page--profile" id="profilePage" hidden>
+    <form class="onboarding__card" id="onboardingProfileForm" novalidate>
+      <div class="onboarding__head">
+        <h1>先认识一下您</h1>
+        <p>这些信息仅保存在本机浏览器，用于让小暖更贴心地陪您聊天。</p>
+      </div>
+
+      <div class="field">
+        <label for="onboardName">怎么称呼</label>
+        <input class="input" type="text" id="onboardName" placeholder="例如：张阿姨 / 李叔叔">
+      </div>
+
+      <div class="field">
+        <label for="onboardAge">年龄</label>
+        <input class="input" type="text" inputmode="numeric" id="onboardAge" placeholder="例如：72">
+      </div>
+
+      <div class="field">
+        <label for="onboardLiving">居住情况</label>
+        <select class="select" id="onboardLiving">
+          <option value="">请选择</option>
+          <option value="独居">独居</option>
+          <option value="与家人同住">与家人同住</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="onboardConditions">身体情况 / 基础病</label>
+        <textarea class="textarea" id="onboardConditions" rows="2" placeholder="例如：高血压、糖尿病；没有可留空"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="onboardMedications">正在服用的药物</label>
+        <input class="input" type="text" id="onboardMedications" placeholder="例如：氨氯地平；没有可留空">
+      </div>
+
+      <div class="field">
+        <label for="onboardAllergies">药物 / 食物过敏史</label>
+        <textarea class="textarea" id="onboardAllergies" rows="2" placeholder="例如：青霉素过敏、海鲜过敏；没有可留空"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="onboardHealthConcerns">主要健康困扰</label>
+        <textarea class="textarea" id="onboardHealthConcerns" rows="2" placeholder="例如：最近膝盖疼、想控制血压；没有可留空"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="onboardMobility">行动 / 自理情况</label>
+        <textarea class="textarea" id="onboardMobility" rows="2" placeholder="例如：走路稳、能自理；偶尔头晕、需拄拐杖"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="onboardEmergencyContact">紧急联系人</label>
+        <input class="input" type="text" id="onboardEmergencyContact" placeholder="例如：儿子 王先生">
+      </div>
+
+      <div class="field">
+        <label for="onboardEmergencyPhone">紧急联系电话</label>
+        <input class="input" type="tel" id="onboardEmergencyPhone" placeholder="例如：13800000000">
+      </div>
+
+      <div class="onboarding__actions">
+        <button class="btn btn--primary btn--block" type="submit">保存并开始</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<!-- 个人信息弹窗（随时修改入口，与首次信息页共用 xiaonuan_profile） -->
+<dialog class="dialog" id="profileDialog" aria-labelledby="profileTitle">
+  <div class="dialog__head">
+    <h2 id="profileTitle">个人信息</h2>
+    <button class="icon-btn icon-btn--plain" type="button" data-close aria-label="关闭个人信息">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+  <div class="dialog__body">
+    <div class="field">
+      <label for="profileName">怎么称呼</label>
+      <input class="input" type="text" id="profileName" placeholder="例如：张阿姨 / 李叔叔">
+    </div>
+
+    <div class="field">
+      <label for="profileAge">年龄</label>
+      <input class="input" type="text" inputmode="numeric" id="profileAge" placeholder="例如：72">
+    </div>
+
+    <div class="field">
+      <label for="profileLiving">居住情况</label>
+      <select class="select" id="profileLiving">
+        <option value="">请选择</option>
+        <option value="独居">独居</option>
+        <option value="与家人同住">与家人同住</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="profileConditions">身体情况 / 基础病</label>
+      <textarea class="textarea" id="profileConditions" rows="2" placeholder="例如：高血压、糖尿病；没有可留空"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="profileMedications">正在服用的药物</label>
+      <input class="input" type="text" id="profileMedications" placeholder="例如：氨氯地平；没有可留空">
+    </div>
+
+    <div class="field">
+      <label for="profileAllergies">药物 / 食物过敏史</label>
+      <textarea class="textarea" id="profileAllergies" rows="2" placeholder="例如：青霉素过敏、海鲜过敏；没有可留空"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="profileHealthConcerns">主要健康困扰</label>
+      <textarea class="textarea" id="profileHealthConcerns" rows="2" placeholder="例如：最近膝盖疼、想控制血压；没有可留空"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="profileMobility">行动 / 自理情况</label>
+      <textarea class="textarea" id="profileMobility" rows="2" placeholder="例如：走路稳、能自理；偶尔头晕、需拄拐杖"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="profileEmergencyContact">紧急联系人</label>
+      <input class="input" type="text" id="profileEmergencyContact" placeholder="例如：儿子 王先生">
+    </div>
+
+    <div class="field">
+      <label for="profileEmergencyPhone">紧急联系电话</label>
+      <input class="input" type="tel" id="profileEmergencyPhone" placeholder="例如：13800000000">
+    </div>
+
+    <p class="field-hint">
+      这些信息仅保存在本机浏览器，用于健康陪护和紧急情况提醒。小暖不会根据这些信息为您诊断、开药或决定是否就医。
+    </p>
+  </div>
+  <div class="dialog__foot">
+    <button class="btn btn--ghost" type="button" data-close>取消</button>
+    <button class="btn btn--ghost" type="button" id="btnRecoverUser">恢复已有档案</button>
+    <button class="btn btn--primary" type="button" id="saveProfile">保存</button>
+  </div>
+</dialog>
+
+<!-- 小暖记得的您（结构化画像 + 脱敏敏感字段） -->
+<dialog class="dialog" id="memoryDialog" aria-labelledby="memoryTitle">
+  <div class="dialog__head">
+    <h2 id="memoryTitle">小暖记得的您</h2>
+    <button class="icon-btn icon-btn--plain" type="button" data-close aria-label="关闭记忆面板">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+  <div class="dialog__body" id="memoryBody">
+    <p class="empty">加载中…</p>
+  </div>
+  <div class="dialog__foot">
+    <button class="btn btn--ghost" type="button" data-close>关闭</button>
+    <button class="btn btn--primary" type="button" id="btnEditProfile">修改个人信息</button>
+  </div>
+</dialog>
+
+<!-- 选择 / 恢复已有用户（多设备找回） -->
+<dialog class="dialog" id="switchUserDialog" aria-labelledby="switchUserTitle">
+  <div class="dialog__head">
+    <h2 id="switchUserTitle">恢复已有档案</h2>
+    <button class="icon-btn icon-btn--plain" type="button" data-close aria-label="关闭恢复已有档案">
+      <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+    </button>
+  </div>
+  <div class="dialog__body" id="switchUserList">
+    <p class="empty">加载中…</p>
+  </div>
+  <div class="dialog__foot">
+    <button class="btn btn--primary" type="button" data-close>关闭</button>
+  </div>
+</dialog>
+
 <script src="scripts/chat.js"></script>
+<script>
+/* ===== 首次欢迎流程 =====
+   职责：每次打开先展示欢迎页 → 信息页 → 聊天；与“个人信息”弹窗共用 xiaonuan_profile。
+   若之前已填写过，进入信息页时自动带出上次保存的内容，无需重复填写。
+========================================================================== */
+(function () {
+  "use strict";
+
+  var PROFILE_KEY = "xiaonuan_profile";
+  var DONE_KEY = "xiaonuan_profile_done";
+
+  var FIELDS = [
+    { key: "name", label: "称呼", id: "Name" },
+    { key: "age", label: "年龄", id: "Age" },
+    { key: "living", label: "居住情况", id: "Living" },
+    { key: "conditions", label: "身体情况/基础病", id: "Conditions" },
+    { key: "medications", label: "正在服用的药物", id: "Medications" },
+    { key: "allergies", label: "药物/食物过敏史", id: "Allergies" },
+    { key: "healthConcerns", label: "主要健康困扰", id: "HealthConcerns" },
+    { key: "mobility", label: "行动/自理情况", id: "Mobility" },
+    { key: "emergencyContact", label: "紧急联系人", id: "EmergencyContact" },
+    { key: "emergencyPhone", label: "紧急联系电话", id: "EmergencyPhone" },
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var XN = window.Xiaonuan || {};
+
+  XN.setLocalProfile = function (collected) {
+    var values = {};
+    FIELDS.forEach(function (field) {
+      values[field.key] = (collected && collected[field.key]) || "";
+    });
+    saveProfileLocal(values);
+    localStorage.setItem(DONE_KEY, "1");
+    hideWelcomeFlow();
+  };
+
+  function getProfileText() {
+    return localStorage.getItem(PROFILE_KEY) || "";
+  }
+
+  function buildProfileString(values) {
+    return FIELDS.map(function (field) {
+      var value = (values && values[field.key]) || "";
+      return field.label + "：" + value;
+    }).join("；");
+  }
+
+  function parseProfileString(text) {
+    var values = {};
+    var source = text || "";
+    FIELDS.forEach(function (field, index) {
+      var marker = field.label + "：";
+      var start = source.indexOf(marker);
+      if (start < 0) return;
+
+      var valueStart = start + marker.length;
+      var valueEnd = source.length;
+      for (var nextIndex = index + 1; nextIndex < FIELDS.length; nextIndex++) {
+        var nextMarker = FIELDS[nextIndex].label + "：";
+        var next = source.indexOf(nextMarker, valueStart);
+        if (next >= 0) {
+          valueEnd = next;
+          break;
+        }
+      }
+
+      values[field.key] = source.slice(valueStart, valueEnd).replace(/；$/, "").trim();
+    });
+    return values;
+  }
+
+  function readFields(prefix) {
+    var values = {};
+    FIELDS.forEach(function (field) {
+      var el = $(prefix + field.id);
+      values[field.key] = el.value.trim();
+    });
+    return values;
+  }
+
+  function fillFields(prefix, values) {
+    FIELDS.forEach(function (field) {
+      $(prefix + field.id).value = values[field.key] || "";
+    });
+  }
+
+  function isDone() {
+    return localStorage.getItem(DONE_KEY) === "1";
+  }
+
+  function saveProfileLocal(values) {
+    var text = buildProfileString(values);
+    localStorage.setItem(PROFILE_KEY, text);
+    window.userProfile = text;
+  }
+
+  function renderLocalMemory(values) {
+    if (XN.renderMemory) {
+      XN.renderMemory({
+        collected: XN.localCollected ? XN.localCollected(values) : values,
+        profile: {},
+        summary: "",
+      });
+    }
+  }
+
+  function persistProfile(values, doneCallback) {
+    saveProfileLocal(values);
+
+    if (!XN.saveProfile) {
+      localStorage.setItem(DONE_KEY, "1");
+      renderLocalMemory(values);
+      if (doneCallback) doneCallback(false);
+      return;
+    }
+
+    XN.saveProfile(values)
+      .then(function (detail) {
+        localStorage.setItem(DONE_KEY, "1");
+        if (XN.renderMemory) XN.renderMemory(detail);
+        if (doneCallback) doneCallback(true);
+      })
+      .catch(function () {
+        localStorage.setItem(DONE_KEY, "1");
+        renderLocalMemory(values);
+        if (doneCallback) doneCallback(false);
+      });
+  }
+
+  function showWelcomeFlow() {
+    $("welcomeFlow").hidden = false;
+    showOnboardingPage("welcomePage");
+  }
+
+  function hideWelcomeFlow() {
+    $("welcomeFlow").hidden = true;
+  }
+
+  function showOnboardingPage(pageId) {
+    $("welcomePage").hidden = pageId !== "welcomePage";
+    $("profilePage").hidden = pageId !== "profilePage";
+  }
+
+  function openProfileDialog() {
+    fillFields("profile", parseProfileString(getProfileText()));
+    $("profileDialog").showModal();
+  }
+
+  function saveProfileDialog() {
+    persistProfile(readFields("profile"), function (wrote) {
+      $("profileDialog").close();
+      if (XN.notify) XN.notify(wrote ? "已写入记忆" : "已保存在本机（未连接后端）");
+    });
+  }
+
+  function loadRemoteMemory() {
+    var userId = XN.getUserId ? XN.getUserId() : "";
+    var backendUrlEl = $("backendUrl");
+    if (!userId || !backendUrlEl || !backendUrlEl.value.trim()) return;
+    var base = backendUrlEl.value.trim().replace(/\/+$/, "");
+    var headers = { "Content-Type": "application/json" };
+    var keyEl = $("backendApiKey");
+    if (keyEl && keyEl.value.trim()) headers["X-API-Key"] = keyEl.value.trim();
+
+    fetch(base + "/api/users/" + encodeURIComponent(userId), { headers: headers })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.json();
+      })
+      .then(function (detail) {
+        if (XN.renderMemory) XN.renderMemory(detail);
+      })
+      .catch(function () {
+        renderLocalMemory(parseProfileString(getProfileText()));
+      });
+  }
+
+  function init() {
+    window.userProfile = getProfileText();
+
+    if (isDone()) {
+      hideWelcomeFlow();
+      loadRemoteMemory();
+    } else {
+      showWelcomeFlow();
+    }
+
+    $("btnStartProfile").addEventListener("click", function () {
+      fillFields("onboard", parseProfileString(getProfileText()));
+      showOnboardingPage("profilePage");
+    });
+
+    $("onboardingProfileForm").addEventListener("submit", function (event) {
+      event.preventDefault();
+      persistProfile(readFields("onboard"), function (wrote) {
+        hideWelcomeFlow();
+        if (XN.notify) {
+          XN.notify(wrote ? "已写入记忆，小暖现在更懂您了" : "已保存在本机（未连接后端）");
+        }
+      });
+    });
+
+    $("btnProfile").addEventListener("click", openProfileDialog);
+    $("saveProfile").addEventListener("click", saveProfileDialog);
+    $("btnMemoryOpen").addEventListener("click", function () {
+      if (XN.openMemory) XN.openMemory();
+    });
+    $("btnEditProfile").addEventListener("click", function () {
+      $("memoryDialog").close();
+      openProfileDialog();
+    });
+  }
+
+  init();
+})();
+</script>
 </body>
 </html>

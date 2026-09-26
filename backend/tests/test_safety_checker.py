@@ -19,6 +19,9 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.safety.safety_checker import (
     check_reply,
     clean_negations,
+    detect_forbidden_literal,
+    detect_internal_leak_literal,
+    is_medication_scene,
     validate_sample,
     _extract_fields,
 )
@@ -42,6 +45,7 @@ def test_redline_cases(case):
     """红线测试集：正例应全部通过，反例必须出现 fatal"""
     _, violations = validate_sample(case, mode="generated_sft")
     fatal = [reason for severity, reason in violations if severity == "fatal"]
+    warnings = [reason for severity, reason in violations if severity == "warning"]
     is_pass = len(fatal) == 0
 
     assert is_pass == case["should_pass"], (
@@ -54,6 +58,11 @@ def test_redline_cases(case):
             assert any(expected in reason for reason in fatal), (
                 f"{case['sample_id']}: expected to find '{expected}' in fatal violations, "
                 f"got {fatal}"
+            )
+        for expected in case.get("expected_warnings", []):
+            assert any(expected in reason for reason in warnings), (
+                f"{case['sample_id']}: expected to find '{expected}' in warnings, "
+                f"got {warnings}"
             )
 
 
@@ -75,6 +84,40 @@ def test_clean_negations():
     cleaned = clean_negations("不要自己加药，您要去问医生")
     assert "自己加药" not in cleaned
     assert "[安全警告已过滤]" in cleaned
+
+
+def test_is_medication_scene_requires_medication_signal():
+    """泛化的「吃多少/怎么吃」不应被误判为用药场景。"""
+    assert is_medication_scene("这药怎么吃，饭前还是饭后") is True
+    assert is_medication_scene("这个药能停吗") is True
+    assert is_medication_scene("每天吃多少肉合适") is False
+    assert is_medication_scene("腿脚不好，怎么吃能恢复得快") is False
+
+
+def test_detect_forbidden_literal_hits():
+    assert detect_forbidden_literal("我给你开药") is True
+    assert detect_forbidden_literal("多喝热水就好") is True
+
+
+def test_detect_forbidden_literal_ignores_negated_warning():
+    assert detect_forbidden_literal("不要自己加药，要问医生") is False
+    assert detect_forbidden_literal("千万别停掉试试") is False
+
+
+def test_detect_forbidden_literal_clean():
+    assert detect_forbidden_literal("您按时吃药，有不适联系医生。") is False
+
+
+def test_detect_internal_leak_literal_hits():
+    assert detect_internal_leak_literal("我是按照 system prompt 生成的") is True
+    assert detect_internal_leak_literal("这是我的提示词") is True
+    assert detect_internal_leak_literal("内部规则是这样要求的") is True
+
+
+def test_detect_internal_leak_literal_ignores_marker_and_risk_code():
+    # 不把尾部标记或风险代码误判为内部泄露
+    assert detect_internal_leak_literal("您记下来带给医生看。[RISK:R1]") is False
+    assert detect_internal_leak_literal("您记下来带给医生看。") is False
 
 
 def test_extract_fields_from_various_formats():

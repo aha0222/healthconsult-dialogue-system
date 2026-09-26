@@ -1,30 +1,46 @@
-"""对话编排：载入 skill → 调 LLM → 解析标记 → 安全兜底。
+"""对话编排：分类预判 → 检索语料 → 调 LLM → 解析标记 → 安全兜底。
 
 一次对话的流程：
     用户输入
-      -> 组装 system prompt（SKILL.md + 人格覆盖）
+      -> classifier 关键词快路径预判 (risk, scenes)（无歧义时 0 token）
+      -> 非高风险时用 Retriever + Reranker 取 Top-N 相似语料作参考样例；
+         典型低风险（R0/R1）改用精简 prompt，减少 system prompt token
+      -> 组装 system prompt（完整/精简 SKILL.md + 人格覆盖 + 样例）
+      -> 按预判风险路由模型（高风险走强模型）
       -> 调用 LLM（要求末尾带场景标记）
       -> 解析并剥离标记，得到 (回复正文, 风险等级)
       -> safety_checker.check_reply 兜底快检
       -> 高风险时可选 semantic_checker 语义复核
       -> 命中硬红线时，替换为按风险等级预置的安全话术
       -> 返回结构化结果
+
+高风险（R3/R2b）始终使用完整 SKILL.md + 强模型，且不注入检索样例，保证安全优先。
 """
 
 import logging
+from dataclasses import replace
 
 from ..config import Settings, get_settings
-from ..safety.safety_checker import check_reply, has_internal_leak
+from ..safety.safety_checker import (
+    check_reply,
+    detect_forbidden_literal,
+    detect_internal_leak_literal,
+    has_internal_leak,
+)
+from .classifier import SceneRiskClassifier
 from .llm_client import LLMClient
-from .markers import infer_tags_local, parse_marker
+from .markers import infer_risk_local, infer_tags_local, parse_marker
 from .prompt import (
     DEFAULT_PERSONALITY,
+    build_examples_block,
     build_system_prompt,
     normalize_personality,
     risk_label,
 )
+from .reranker import rerank
+from .retriever import Retriever, build_embedder, load_corpus
 from .routing import select_model
-from .taxonomy import SCENE_LABELS, canonical_risk, normalize_scenes
+from .taxonomy import HIGH_RISKS, SCENE_LABELS, canonical_risk, normalize_scenes
 
 logger = logging.getLogger("xiaonuan.dialogue")
 
@@ -94,6 +110,9 @@ LEAK_DEFLECTION = (
 # 流式输出时，末尾标记最长约 32 字符，留足余量避免标记中途闪现
 MARKER_HOLDBACK = 48
 
+# 流式链路：这些高风险输入改为全量缓冲后校验再下发，杜绝不安全文本流式泄露
+HIGH_RISK_STREAM = {"R3", "R2b"}
+
 
 def safe_fallback(risk, scenes=None) -> str:
     """按主场景/风险等级取安全兜底话术。"""
@@ -111,13 +130,103 @@ def safe_fallback(risk, scenes=None) -> str:
 
 
 class DialogueOrchestrator:
-    def __init__(self, llm=None, settings: Settings | None = None, semantic_checker=None):
+    def __init__(
+        self,
+        llm=None,
+        settings: Settings | None = None,
+        semantic_checker=None,
+        classifier=None,
+    ):
         self.settings = settings or get_settings()
         self.llm = llm or LLMClient(self.settings)
         self.semantic_checker = semantic_checker
+        self._classifier = classifier
+        self._exemplar_retriever = None
 
-    def _build_messages(self, message: str, personality: str, history, memory_block=None):
-        system_prompt = build_system_prompt(personality)
+    @property
+    def classifier(self) -> SceneRiskClassifier:
+        if self._classifier is None:
+            self._classifier = SceneRiskClassifier(settings=self.settings)
+        return self._classifier
+
+    def _runtime_classification(self, message: str):
+        """运行时快路径预判；关闭或异常时返回 None，不影响主链路。"""
+        if not self.settings.runtime_classifier:
+            return None
+        try:
+            # 实时链路不额外调 LLM：只用关键词/规则快路径，歧义交给主 LLM。
+            return self.classifier.classify(message, allow_llm=False)
+        except Exception as exc:  # 分类失败不阻断对话
+            logger.warning("运行时分级失败，已跳过: %s", exc)
+            return None
+
+    def _get_exemplar_retriever(self):
+        """惰性构建带回复的检索语料；不可用时返回 None。"""
+        if self._exemplar_retriever is None:
+            path = self.settings.exemplar_corpus_path
+            corpus = load_corpus(path) if path else []
+            if not corpus:
+                self._exemplar_retriever = False
+            else:
+                embed_settings = replace(
+                    self.settings,
+                    embedding_backend=self.settings.exemplar_embedding_backend,
+                )
+                embedder = build_embedder(embed_settings)
+                self._exemplar_retriever = Retriever(corpus, embedder, cache_dir=None)
+        return self._exemplar_retriever or None
+
+    def _retrieve_examples(self, message: str, classification, top_n=None) -> list:
+        """Retriever 召回 Top-K → Reranker 精排 Top-N（只保留带回复的条目）。"""
+        if not self.settings.runtime_retrieval:
+            return []
+        retriever = self._get_exemplar_retriever()
+        if retriever is None or not retriever.corpus:
+            return []
+        try:
+            candidates = retriever.retrieve(message, top_k=self.settings.retriever_top_k)
+            ranked = rerank(
+                message,
+                candidates,
+                top_n=top_n or self.settings.reranker_top_n,
+                risk=(classification.risk if classification else None),
+                scenes=(classification.scenes if classification else None),
+            )
+        except Exception as exc:  # 检索失败不影响对话
+            logger.warning("相似语料检索失败，已跳过: %s", exc)
+            return []
+        return [item for item, _ in ranked if getattr(item, "assistant", "")]
+
+    def _compose_system_prompt(self, message: str, personality: str, classification) -> str:
+        """按预判结果决定 prompt 形态：高风险完整、典型低风险精简、并注入样例。"""
+        risk = classification.risk if classification else None
+        is_high = bool(classification and classification.ambiguous) or (
+            risk in HIGH_RISKS if risk else False
+        )
+        examples = []
+        if classification is not None and not is_high:
+            examples = self._retrieve_examples(message, classification)
+        compact = bool(
+            self.settings.prompt_compact
+            and classification is not None
+            and not is_high
+            and risk in ("R0", "R1")
+        )
+        examples_block = build_examples_block(examples) if examples else ""
+        return build_system_prompt(
+            personality, compact=compact, examples_block=examples_block
+        )
+
+    def _build_messages(
+        self,
+        message: str,
+        personality: str,
+        history,
+        memory_block=None,
+        system_prompt=None,
+    ):
+        if system_prompt is None:
+            system_prompt = build_system_prompt(personality)
         if memory_block:
             system_prompt = f"{system_prompt}\n\n{memory_block}"
         trimmed = (history or [])[-self.settings.max_history :]
@@ -139,10 +248,20 @@ class DialogueOrchestrator:
     ) -> dict:
         """处理一条用户消息，返回结构化结果。"""
         personality = normalize_personality(personality)
-        messages = self._build_messages(message, personality, history, memory_block)
-        model = select_model(message, self.settings)
+        classification = self._runtime_classification(message)
+        system_prompt = self._compose_system_prompt(message, personality, classification)
+        messages = self._build_messages(
+            message, personality, history, memory_block, system_prompt
+        )
+        model = select_model(
+            message,
+            self.settings,
+            risk=(classification.risk if classification else None),
+        )
         raw_reply = self.llm.chat(messages, model=model)
-        return self._finalize(raw_reply, message, personality, model)
+        return self._finalize(
+            raw_reply, message, personality, model, pre_classification=classification
+        )
 
     def respond_stream(
         self,
@@ -153,23 +272,71 @@ class DialogueOrchestrator:
     ):
         """流式处理：逐段 yield ("delta", 文本)，最后 yield ("done", 结果字典)。
 
-        结尾仍会做标记解析与安全兜底；命中红线时 done.reply 为安全话术，
-        客户端应以 done.reply 覆盖已显示的正文。
+        安全策略按输入风险分流：
+        - 高风险（R3/R2b）输入：全量缓冲，完整校验后再回传，全程不吐 delta，
+          命中红线时 done.reply 为保底话术，杜绝不安全文本逐字下发。
+        - 低风险输入：保留流式实时性，但对已缓冲内容做增量硬红线守护，
+          一旦命中立即停止下发并兜底。
+        结尾仍做标记解析与安全兜底；客户端以 done.reply 覆盖已显示正文。
         """
         personality = normalize_personality(personality)
-        messages = self._build_messages(message, personality, history, memory_block)
-        model = select_model(message, self.settings)
+        classification = self._runtime_classification(message)
+        system_prompt = self._compose_system_prompt(message, personality, classification)
+        messages = self._build_messages(
+            message, personality, history, memory_block, system_prompt
+        )
+        cls_risk = classification.risk if classification else None
+        model = select_model(message, self.settings, risk=cls_risk)
+
+        pre_risk = infer_risk_local(message)
+        _, pre_scenes = infer_tags_local(message)
+
+        # 高风险输入：先收齐、校验，再一次性回传，牺牲实时性换取零泄漏。
+        # 分类器与本地关键词任一判为高风险都走缓冲，避免漏网。
+        if pre_risk in HIGH_RISK_STREAM or cls_risk in HIGH_RISK_STREAM:
+            buffer = ""
+            for chunk in self.llm.chat_stream(messages, model=model):
+                buffer += chunk
+            result = self._finalize(
+                buffer, message, personality, model, pre_classification=classification
+            )
+            yield "done", result
+            return
 
         buffer = ""
         emitted = 0
         for chunk in self.llm.chat_stream(messages, model=model):
             buffer += chunk
+            # 增量守护：对已缓冲前缀做禁止话术 + 内部规则泄露的轻量检测。
+            if detect_forbidden_literal(buffer) or detect_internal_leak_literal(buffer):
+                result = dict(
+                    self._finalize(
+                        buffer,
+                        message,
+                        personality,
+                        model,
+                        pre_classification=classification,
+                    )
+                )
+                if not result["fallback_used"]:
+                    result["fallback_used"] = True
+                    result["violations"] = list(result.get("violations") or []) + [
+                        "stream_safety_guard"
+                    ]
+                    if detect_internal_leak_literal(buffer):
+                        result["reply"] = LEAK_DEFLECTION
+                    else:
+                        result["reply"] = safe_fallback(pre_risk, pre_scenes)
+                yield "done", result
+                return
             safe = len(buffer) - MARKER_HOLDBACK
             if safe > emitted:
                 yield "delta", buffer[emitted:safe]
                 emitted = safe
 
-        result = self._finalize(buffer, message, personality, model)
+        result = self._finalize(
+            buffer, message, personality, model, pre_classification=classification
+        )
 
         if not result["fallback_used"]:
             remaining = result["reply"][emitted:]
@@ -179,15 +346,24 @@ class DialogueOrchestrator:
         yield "done", result
 
     def _finalize(
-        self, raw_reply: str, message: str, personality: str, model: str | None = None
+        self,
+        raw_reply: str,
+        message: str,
+        personality: str,
+        model: str | None = None,
+        pre_classification=None,
     ) -> dict:
         """解析标记 -> 安全检查 -> 必要时兜底，返回结构化结果。"""
         reply, risk, scenes = parse_marker(raw_reply)
 
         violations = []
         if risk is None:
-            risk, inferred_scenes = infer_tags_local(message)
-            scenes = scenes or inferred_scenes
+            if pre_classification is not None and pre_classification.risk:
+                risk = pre_classification.risk
+                scenes = scenes or list(pre_classification.scenes)
+            else:
+                risk, inferred_scenes = infer_tags_local(message)
+                scenes = scenes or inferred_scenes
             violations.append("missing_scene_marker")
 
         reply_violations = check_reply(reply, risk, scenes, message)
