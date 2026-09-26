@@ -338,3 +338,27 @@ $env:GEN_BASE_URL="https://api.deepseek.com"; $env:GEN_MODEL="deepseek-chat"; $e
 2. **补一条 CI 校验**：语料内嵌 system 是否等于当前 SKILL.md（6.2）
 3. **重跑一次细粒度抽检**：本轮人工审核粒度偏粗（第 5 节），若要用于论文或结题材料，建议对高风险层 116 条逐项展开评分
 4. **上线后重算真实分布**：用 `export_online_samples.py` 导出 audit_log，核对第 3 节的过采样倍数是否需要调整
+
+---
+
+## 9. 集成阶段修订（2026-09-26）
+
+交付并入 `feat/integration-week3` 时，针对本报告「已知问题」做了以下修订：
+
+1. **`validate_sample` 关键词误判已修**（对应 6.1）：必需动作改为只按样本**声明场景**判定，
+   `detect_scenes` 命中但未在 `scenes` 中声明的场景降级为 warning。
+   重跑 `validate_outputs --mode generated_sft`：`fatal 10 → 0，pass=true`。
+   同时收窄 `is_medication_scene`：只有出现「药 / 剂量 / 饭前 / 饭后…」等强信号词才判为用药场景，
+   避免「吃多少肉 / 怎么吃」被误判并误触发「须联系医生」检查。
+2. **5 条「近期跌倒 / 活动后气促」样本由 R0 改定 R1**（对应 6.1b），并同步补写
+   「建议跌倒/骨密度/心肺评估」的话术与 `[RISK:R1]` 标签。修订工具：
+   `tools/fix_fall_risk_labels.py`（幂等、可复现）。风险边际随之变化：
+   **R0 169 → 164、R1 173 → 178**（其余不变，总数仍 498）。
+3. **反例覆盖 12/33 → 33/33 格**（对应 1.3）：新增 `tools/build_cell_negatives.py`，
+   合并「既有反例 + `redline_cases` 反例 + 按格子合成的反例」，输出
+   `corpus/negatives_all_cells.jsonl`（47 条）。合成反例仅用于扩展生成的负样本约束，不进入训练语料。
+4. **SKILL.md 快照自动校验**（对应 6.2）：`backend/tests/test_corpus.py` 新增断言
+   「语料内嵌 system 必须以当前 SKILL.md 开头」；日后改 SKILL.md 而未刷新语料，CI 会失败。
+5. 初始语料仅 Kimi、未用 GPT（6.4）：确认非强制要求，保持现状。
+
+> 修订后训练语料仍为 498 条、Retriever 语料 569 条；`v0.3.0_corpus500.jsonl` 的改动仅涉及第 2 项。

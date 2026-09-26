@@ -296,8 +296,18 @@ def detect_scenes(text):
     return found[:MAX_SCENES]
 
 
+# 用药场景的强信号词：只有出现这些词才认定为用药场景，避免「吃多少肉 / 怎么吃」
+# 这类泛化词被误判成用药（进而误触发「须联系医生/药师」检查、甚至误兜底）。
+_MEDICATION_STRONG = (
+    "药", "剂量", "漏服", "忘吃", "补药", "换药", "停药", "加药", "减药",
+    "饭前", "饭后", "服药", "处方",
+)
+
+
 def is_medication_scene(user_text, scene_text=""):
     combined = f"{user_text} {scene_text}"
+    if not _contains_any(combined, _MEDICATION_STRONG):
+        return False
     return "S2" in detect_scenes(combined) or _contains_any(combined, SCENE_KEYWORDS["S2"])
 
 

@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backend.app.dialogue.prompt import load_skill_prompt
 from backend.app.dialogue.taxonomy import (
     RISK_LEVELS,
     SCENES,
@@ -83,6 +84,22 @@ def test_corpus_consistent_with_training_labels():
             mismatches.append({"user": key, "expected": training[key], "got": got})
     assert matched >= 400, f"与训练语料匹配的条目过少：{matched}"
     assert not mismatches, f"标签与训练语料不一致：{mismatches[:3]}"
+
+
+def test_embedded_system_matches_current_skill():
+    """语料内嵌 system 必须是当前 SKILL.md 的快照（防止 SKILL.md 改动后训练数据静默过期）。"""
+    skill = load_skill_prompt().strip()
+    stale = []
+    for row in _load(TRAIN_PATH):
+        system = next(
+            (m.get("content", "") for m in row.get("messages", []) if m.get("role") == "system"),
+            "",
+        )
+        if not system.strip().startswith(skill):
+            stale.append(row.get("sample_id"))
+    assert not stale, (
+        f"语料内嵌 system 与当前 SKILL.md 不一致，需刷新（tools/migrate_tags_v2.py --apply）：{stale[:5]}"
+    )
 
 
 def test_corpus_registers_training_source():
