@@ -223,3 +223,16 @@ Phase 4 有 91 条只记录了结论「通过」未逐项展开，结论同样�
 | 每个文件回哪个仓库路径 | `_MANIFEST.md` |
 | 审核判据（32 条） | `要求8-审核清单/corpus_review_checklist.md` |
 | 逐条对照表（10 条 fatal、抽检分层） | `文档/corpus_build_report.md` 第 5、6.1 节 |
+
+---
+
+## 8. 集成阶段已处理（2026-09-26）
+
+语料并入仓库时（分支 `feat/integration-week3`）已处理本说明提出的待办；仓库内路径与本交付包不同：
+
+- 文件已按 `_MANIFEST.md` 归位：报告 → `docs/corpus_build_report.md`，清单 → `docs/corpus_review_checklist.md`，本文 → `docs/corpus_handoff_notes.md`。
+- 第 1.1 节 5 处 `redline_cases.jsonl` 错误标签：已采用修正版。
+- 第 1.2 节 4–5 条「近期跌倒 / 活动后气促」定级：已由 R0 改 R1，工具 `tools/fix_fall_risk_labels.py`。
+- 第 1.3 节反例覆盖 9 场景：已扩到 33/33 格，工具 `tools/build_cell_negatives.py`，产物 `corpus/negatives_all_cells.jsonl`。
+- 第 2.1 节 10 条 fatal：已修 `safety_checker.validate_sample`（按声明场景判定必需动作），`fatal=0`。
+- 第 4 节 SKILL.md 快照过期风险：已加 CI 断言，见 `backend/tests/test_corpus.py`。

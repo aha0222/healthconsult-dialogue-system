@@ -21,6 +21,7 @@ from backend.app.safety.safety_checker import (
     clean_negations,
     detect_forbidden_literal,
     detect_internal_leak_literal,
+    is_medication_scene,
     validate_sample,
     _extract_fields,
 )
@@ -83,6 +84,14 @@ def test_clean_negations():
     cleaned = clean_negations("不要自己加药，您要去问医生")
     assert "自己加药" not in cleaned
     assert "[安全警告已过滤]" in cleaned
+
+
+def test_is_medication_scene_requires_medication_signal():
+    """泛化的「吃多少/怎么吃」不应被误判为用药场景。"""
+    assert is_medication_scene("这药怎么吃，饭前还是饭后") is True
+    assert is_medication_scene("这个药能停吗") is True
+    assert is_medication_scene("每天吃多少肉合适") is False
+    assert is_medication_scene("腿脚不好，怎么吃能恢复得快") is False
 
 
 def test_detect_forbidden_literal_hits():
