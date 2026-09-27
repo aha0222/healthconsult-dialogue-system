@@ -44,6 +44,7 @@ from .profile import (
     map_collected_to_profile,
     merge_profiles,
     redact_collected,
+    sanitize_collected,
 )
 from .safety.semantic_checker import SemanticChecker
 from .sampling import redact
@@ -183,7 +184,7 @@ def _user_record(db: Database, user_id: str) -> UserRecord:
     return UserRecord(
         id=user["id"],
         display_name=user.get("display_name") or "",
-        collected=load_json_dict(user.get("collected")),
+        collected=sanitize_collected(load_json_dict(user.get("collected"))),
         profile=merge_profiles(
             load_json_dict(user.get("profile")),
             load_json_dict(user.get("conversation_profile")),
@@ -398,7 +399,7 @@ def get_session(session_id: str, db: Database = Depends(get_db)):
     if user_id:
         user = db.get_user(user_id)
         if user:
-            collected = load_json_dict(user.get("collected"))
+            collected = sanitize_collected(load_json_dict(user.get("collected")))
             profile = merge_profiles(
                 load_json_dict(user.get("profile")),
                 load_json_dict(user.get("conversation_profile")),
@@ -436,7 +437,6 @@ def save_profile(request: ProfileRequest, db: Database = Depends(get_db)):
             "healthConcerns": request.healthConcerns,
             "mobility": request.mobility,
             "emergencyContact": request.emergencyContact,
-            "emergencyPhone": request.emergencyPhone,
         }
     )
     display_name = collected.get("name") or "老人"

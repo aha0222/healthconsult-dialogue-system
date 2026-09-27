@@ -143,14 +143,14 @@ def test_upsert_and_get_user(tmp_path):
     user_id = db.upsert_user(
         None,
         display_name="张阿姨",
-        collected={"name": "张阿姨", "emergencyPhone": "138****5678"},
+        collected={"name": "张阿姨", "emergencyContact": "儿子 王先生"},
         profile={"conditions": ["高血压"]},
         summary="张阿姨，72 岁。",
     )
     user = db.get_user(user_id)
     assert user["id"] == user_id
     assert user["display_name"] == "张阿姨"
-    assert "138****5678" in user["collected"]
+    assert "张阿姨" in user["collected"]
     assert "高血压" in user["profile"]
     assert user["summary"] == "张阿姨，72 岁。"
 

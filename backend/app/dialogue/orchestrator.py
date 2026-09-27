@@ -40,7 +40,7 @@ from .prompt import (
 from .reranker import rerank
 from .retriever import Retriever, build_embedder, load_corpus
 from .routing import select_model
-from .taxonomy import HIGH_RISKS, SCENE_LABELS, canonical_risk, normalize_scenes
+from .taxonomy import HIGH_RISKS, SCENE_LABELS, canonical_risk, max_risk, normalize_scenes
 
 logger = logging.getLogger("xiaonuan.dialogue")
 
@@ -365,14 +365,32 @@ class DialogueOrchestrator:
                 risk, inferred_scenes = infer_tags_local(message)
                 scenes = scenes or inferred_scenes
             violations.append("missing_scene_marker")
+        else:
+            # 以本地预判为风险下限，避免用户/模型用低标记把风险压回去。
+            floored = max_risk(
+                risk, pre_classification.risk if pre_classification else ""
+            )
+            if floored and floored != risk:
+                risk = floored
+                violations.append("risk_floor_from_preclassification")
+
+        # 回复漏标场景时，用本地预判补回，保证场景专属兜底（如 M2 心理热线）可用。
+        if not scenes and pre_classification is not None and pre_classification.scenes:
+            scenes = list(pre_classification.scenes)
+
+        # 模型返回空正文（含只回标记）：按风险兜底，避免用户收到空气泡。
+        empty_reply = not reply.strip()
+        if empty_reply:
+            violations.append("empty_reply")
+            reply = safe_fallback(risk, scenes)
 
         reply_violations = check_reply(reply, risk, scenes, message)
         violations.extend(reply_violations)
 
         # 只有命中硬红线（禁止话术 / 缺失紧急要素）才替换为安全话术；
         # 仅缺少标记属于软提示，不覆盖模型回复。
-        fallback_used = bool(reply_violations)
-        if fallback_used:
+        fallback_used = empty_reply or bool(reply_violations)
+        if reply_violations:
             reply = safe_fallback(risk, scenes)
 
         # 身份/内部规则泄露：不解释、不展示，改用角色内的温和兜底

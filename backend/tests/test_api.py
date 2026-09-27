@@ -338,24 +338,36 @@ def test_save_profile_and_get_user(make_client):
             "healthConcerns": "膝盖疼",
             "mobility": "能自理",
             "emergencyContact": "儿子 王先生",
-            "emergencyPhone": "13812345678",
         },
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["id"]
     assert body["display_name"] == "张阿姨"
-    assert body["collected"]["emergencyPhone"] == "138****5678"
+    assert body["collected"]["emergencyContact"] == "儿子 王先生"
+    assert "emergencyPhone" not in body["collected"]
     assert body["profile"]["conditions"] == ["高血压", "糖尿病"]
     assert "张阿姨" in body["summary"]
 
     user_id = body["id"]
     got = client.get(f"/api/users/{user_id}").json()
     assert got["id"] == user_id
-    assert got["collected"]["emergencyPhone"] == "138****5678"
+    assert "emergencyPhone" not in got["collected"]
 
     listed = client.get("/api/users").json()
     assert any(u["id"] == user_id for u in listed)
+
+
+def test_profile_ignores_retired_emergency_phone(make_client):
+    client = make_client(reply="x")
+    resp = client.post(
+        "/api/profile",
+        json={"name": "张阿姨", "emergencyPhone": "13812345678"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "emergencyPhone" not in body["collected"]
+    assert "13812345678" not in resp.text
 
 
 def test_get_user_404(make_client):
@@ -371,7 +383,7 @@ def test_profile_write_injected_into_next_reply(make_client):
             "name": "张阿姨",
             "conditions": "高血压、糖尿病",
             "medications": "氨氯地平",
-            "emergencyPhone": "13812345678",
+            "emergencyContact": "儿子 王先生",
         },
     ).json()
     user_id = saved["id"]
@@ -384,7 +396,7 @@ def test_profile_write_injected_into_next_reply(make_client):
     assert "【已知信息】" in known
     assert "高血压" in known
     assert "张阿姨" in known
-    assert "138****5678" in known
+    assert "紧急联系人：儿子 王先生" in known
     assert "用户自述信息" not in known
 
 
@@ -392,7 +404,7 @@ def test_session_detail_returns_merged_profile(make_client):
     client = make_client(reply="您记下来带给医生看。[RISK:R1]")
     saved = client.post(
         "/api/profile",
-        json={"name": "张阿姨", "conditions": "高血压", "emergencyPhone": "13812345678"},
+        json={"name": "张阿姨", "conditions": "高血压", "emergencyContact": "儿子 王先生"},
     ).json()
     user_id = saved["id"]
 
@@ -404,7 +416,7 @@ def test_session_detail_returns_merged_profile(make_client):
     detail = client.get(f"/api/sessions/{session_id}").json()
     assert detail["user_id"] == user_id
     assert detail["collected"]["name"] == "张阿姨"
-    assert detail["collected"]["emergencyPhone"] == "138****5678"
+    assert "emergencyPhone" not in detail["collected"]
     assert detail["profile"]["conditions"] == ["高血压"]
 
 

@@ -6,7 +6,7 @@ LLM 正常会在回复末尾输出 `[RISK:Rx]` 与若干 `[SCENE:xx]`；本模�
 
 import re
 
-from ..safety.safety_checker import detect_scenes
+from ..safety.safety_checker import detect_scenes, is_critical_emergency
 from .taxonomy import (
     MAX_SCENES,
     extract_tags,
@@ -51,6 +51,8 @@ def _is_emergency(text: str) -> bool:
     if _CHEST_EMERGENCY_RE.search(text) and _CHEST_COMPANION_RE.search(text):
         return True
     if _STROKE_RE.search(text):
+        return True
+    if is_critical_emergency(text):
         return True
     return False
 

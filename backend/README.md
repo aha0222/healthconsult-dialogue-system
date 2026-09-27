@@ -121,8 +121,9 @@ python -m venv .venv
 二者以 schema v3 存在 `sessions` 表，续接会话时作为「历史摘要」「已知信息」注入 system prompt。摘要更新失败不阻断对话。当前画像按会话存储，跨会话复用需配合用户身份（见计划）。
 
 此外，欢迎流程采集的资料通过 `POST /api/profile` 写入 `users` 表（schema v5/v6/v7），成为跨会话复用的
-「用户级权威档案」。`dialogue/profile.py` 负责采集字段 → 画像映射、敏感字段脱敏（紧急联系电话只保留首尾位）、
-用户自述画像与对话提炼画像的合并（冲突以用户自述为准）。会话绑定用户（`sessions.user_id`）后，
+「用户级权威档案」。`dialogue/profile.py` 负责采集字段 → 画像映射、误填手机号/证件号的兜底脱敏、
+用户自述画像与对话提炼画像的合并（冲突以用户自述为准）。只采集对对话有切实帮助的非隐私信息，
+不采集紧急联系电话。会话绑定用户（`sessions.user_id`）后，
 `memory.py` 把自述画像存 `users.profile`、对话提炼画像存 `users.conversation_profile`、对话摘要存
 `users.conversation_summary`（与采集摘要 `users.summary` 分离），读取时 `merge_profiles` 合成权威画像，
 使同一用户新开会话也能复用此前学到的家属、偏好、新基础病等；注入 system prompt 时只使用一份合并后的
@@ -215,13 +216,14 @@ set BACKEND_API_KEY=your-secret
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/api/profile` | 创建或更新用户档案（采集的 10 项资料），返回脱敏后的 `collected`、结构化 `profile` 与 `summary` |
+| `POST` | `/api/profile` | 创建或更新用户档案（采集的 9 项非隐私资料），返回脱敏后的 `collected`、结构化 `profile` 与 `summary` |
 | `GET` | `/api/users` | 用户档案列表 |
-| `GET` | `/api/users/{id}` | 单个用户档案（敏感字段已脱敏） |
+| `GET` | `/api/users/{id}` | 单个用户档案（已过滤历史遗留敏感字段） |
 
 `POST /api/profile` 请求体字段与前端采集一一对应：`user_id`（可选，缺省则新建）、`name`、`age`、
 `living`、`conditions`、`medications`、`allergies`、`healthConcerns`、`mobility`、
-`emergencyContact`、`emergencyPhone`。后端会先脱敏（紧急联系电话只保留首尾位），
+`emergencyContact`。**不采集 `emergencyPhone`**：系统无外呼能力，采集真实号码无用且有隐私风险，
+急症场景统一引导用户拨打 120/110 或自行联系家人。后端对文本做手机号/证件号兜底脱敏，
 再生成画像与摘要并立即写入记忆，使后续会话（携带 `user_id`）立刻生效。
 返回体包含 `collected`（脱敏后的采集资料）、`profile`（结构化画像）、`summary`（采集摘要）
 与 `conversation_summary`（对话提炼摘要，尚未对话时为空）。

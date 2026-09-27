@@ -35,16 +35,17 @@ LLM 漏标时，后端用 `dialogue/markers.py` 的本地关键词分类器兜�
 
 ## 用户级档案与权威记忆
 
-欢迎流程采集的 10 项资料不再只停留在浏览器 `localStorage`，而是通过 `POST /api/profile`
-写入后端 `users` 表（schema v5/v6/v7），成为跨会话复用的「用户级权威档案」：
+欢迎流程采集的资料不再只停留在浏览器 `localStorage`，而是通过 `POST /api/profile`
+写入后端 `users` 表（schema v5/v6/v7），成为跨会话复用的「用户级权威档案」。
+只采集对对话有切实帮助的非隐私信息，**不采集紧急联系电话**（系统无外呼能力，采集无用且有隐私风险）：
 
-- `collected`：采集的 10 项资料（敏感字段已脱敏，紧急联系电话只保留首尾位、中间遮蔽）。
+- `collected`：采集的 9 项非隐私资料（`name / age / living / conditions / medications / allergies / healthConcerns / mobility / emergencyContact`）。
 - `profile`：由采集字段映射出的「自述画像」（`conditions / medications / notes`，不含对话提炼）。
 - `conversation_profile`：由对话提炼出的「对话画像」（`conditions / medications / family / preferences / notes`）。
 - `summary`：由采集字段生成的确定性摘要（采集摘要）。
 - `conversation_summary`：对话提炼的滚动摘要（对话摘要），与采集摘要分离、互不覆盖。
 
-`dialogue/profile.py` 是唯一事实源：负责「采集字段 → 画像」映射、敏感字段脱敏、
+`dialogue/profile.py` 是唯一事实源：负责「采集字段 → 画像」映射、误填手机号/证件号的兜底脱敏、
 用户自述画像与对话提炼画像的合并（去重，冲突以用户自述为准），以及组装唯一注入
 system prompt 的「【已知信息】」块。
 

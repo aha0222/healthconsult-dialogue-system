@@ -12,9 +12,9 @@ from backend.app.profile import (
     build_known_info,
     build_known_info_from_text,
     map_collected_to_profile,
-    mask_phone,
     merge_profiles,
     redact_collected,
+    sanitize_collected,
     split_list,
 )
 
@@ -25,24 +25,29 @@ def test_split_list():
     assert split_list("") == []
 
 
-def test_mask_phone():
-    assert mask_phone("13812345678") == "138****5678"
-    assert mask_phone("138 1234 5678") == "138****5678"
-    assert mask_phone("12345") == "1****5"
-    assert mask_phone("") == ""
+def test_sanitize_collected_drops_retired_keys():
+    cleaned = sanitize_collected(
+        {
+            "name": "张阿姨",
+            "emergencyPhone": "138****5678",
+            "unknown": "x",
+        }
+    )
+    assert cleaned["name"] == "张阿姨"
+    assert "emergencyPhone" not in cleaned
+    assert "unknown" not in cleaned
 
 
-def test_redact_collected_masks_phone_and_pii():
+def test_redact_collected_scrubs_embedded_pii():
     cleaned = redact_collected(
         {
             "name": "张阿姨",
-            "emergencyPhone": "13812345678",
             "conditions": "高血压，电话13812345678",
         }
     )
-    assert cleaned["emergencyPhone"] == "138****5678"
     assert "[手机号]" in cleaned["conditions"]
     assert "13812345678" not in cleaned["conditions"]
+    assert "emergencyPhone" not in cleaned
 
 
 def test_map_collected_to_profile():
@@ -84,12 +89,13 @@ def test_build_known_info_single_block():
         "name": "张阿姨",
         "age": "72",
         "living": "独居",
-        "emergencyPhone": "138****5678",
+        "emergencyContact": "女儿 王女士",
     }
     merged = {"conditions": ["高血压"], "medications": []}
     block = build_known_info(merged, collected, conversation_summary="血压偏高")
     assert block.startswith("【已知信息】")
     assert "称呼：张阿姨" in block
+    assert "紧急联系人：女儿 王女士" in block
     assert "慢病/健康状况：高血压" in block
     assert "近期摘要：血压偏高" in block
     assert "未经医疗核实" in block

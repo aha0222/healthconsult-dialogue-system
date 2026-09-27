@@ -44,7 +44,6 @@
     healthConcerns: "健康困扰",
     mobility: "行动/自理",
     emergencyContact: "紧急联系人",
-    emergencyPhone: "紧急联系电话",
   };
 
   var PROFILE_KEYS = ["conditions", "medications", "family", "preferences", "notes"];
@@ -386,20 +385,10 @@
     else localStorage.removeItem(USER_KEY);
   }
 
-  function maskPhone(value) {
-    var digits = String(value || "").replace(/\D/g, "");
-    if (!digits) return String(value || "");
-    if (digits.length <= 7) {
-      return digits.length > 1 ? digits[0] + "****" + digits[digits.length - 1] : "****";
-    }
-    return digits.slice(0, 3) + "****" + digits.slice(-4);
-  }
-
   function localCollected(fields) {
     var out = {};
     Object.keys(COLLECTED_LABELS).forEach(function (key) {
-      var value = String((fields && fields[key]) || "").trim();
-      out[key] = key === "emergencyPhone" ? maskPhone(value) : value;
+      out[key] = String((fields && fields[key]) || "").trim();
     });
     return out;
   }
@@ -450,7 +439,6 @@
       healthConcerns: (fields && fields.healthConcerns) || "",
       mobility: (fields && fields.mobility) || "",
       emergencyContact: (fields && fields.emergencyContact) || "",
-      emergencyPhone: (fields && fields.emergencyPhone) || "",
     };
     return fetch(base + "/api/profile", {
       method: "POST",
@@ -537,7 +525,7 @@
       body.textContent = "";
 
       var info = memorySection("您告诉小暖的");
-      ["name", "age", "living", "conditions", "medications", "allergies", "healthConcerns", "mobility", "emergencyContact", "emergencyPhone"].forEach(function (key) {
+      ["name", "age", "living", "conditions", "medications", "allergies", "healthConcerns", "mobility", "emergencyContact"].forEach(function (key) {
         var value = collected[key];
         if (value) info.appendChild(memoryRow(COLLECTED_LABELS[key], value));
       });
@@ -638,8 +626,8 @@
       title.textContent = u.display_name || "未命名档案";
       var sub = document.createElement("div");
       sub.className = "session-item__sub tnum";
-      var phone = (u.collected && u.collected.emergencyPhone) || "";
-      sub.textContent = phone ? "电话 " + phone : "已采集资料";
+      var contact = (u.collected && u.collected.emergencyContact) || "";
+      sub.textContent = contact ? "紧急联系人 " + contact : "已采集资料";
       info.appendChild(title);
       info.appendChild(sub);
       btn.appendChild(info);
@@ -1147,7 +1135,6 @@
     saveProfile: saveProfile,
     renderMemory: renderMemory,
     openMemory: openMemoryDialog,
-    maskPhone: maskPhone,
     localCollected: localCollected,
     notify: function (text) { showSystemMsg(text); },
   };

@@ -392,12 +392,7 @@
 
       <div class="field">
         <label for="onboardEmergencyContact">紧急联系人</label>
-        <input class="input" type="text" id="onboardEmergencyContact" placeholder="例如：儿子 王先生">
-      </div>
-
-      <div class="field">
-        <label for="onboardEmergencyPhone">紧急联系电话</label>
-        <input class="input" type="tel" id="onboardEmergencyPhone" placeholder="例如：13800000000">
+        <input class="input" type="text" id="onboardEmergencyContact" placeholder="例如：儿子 王先生（号码请自行留存，系统不采集）">
       </div>
 
       <div class="onboarding__actions">
@@ -463,16 +458,12 @@
 
     <div class="field">
       <label for="profileEmergencyContact">紧急联系人</label>
-      <input class="input" type="text" id="profileEmergencyContact" placeholder="例如：儿子 王先生">
-    </div>
-
-    <div class="field">
-      <label for="profileEmergencyPhone">紧急联系电话</label>
-      <input class="input" type="tel" id="profileEmergencyPhone" placeholder="例如：13800000000">
+      <input class="input" type="text" id="profileEmergencyContact" placeholder="例如：儿子 王先生（号码请自行留存，系统不采集）">
     </div>
 
     <p class="field-hint">
-      这些信息仅保存在本机浏览器，用于健康陪护和紧急情况提醒。小暖不会根据这些信息为您诊断、开药或决定是否就医。
+      这些信息仅保存在本机浏览器，用于健康陪护和个性化建议。系统不采集紧急联系电话；
+      如遇急症请直接拨打 120，人身安全受威胁请拨打 110，并联系家人。小暖不会根据这些信息为您诊断、开药或决定是否就医。
     </p>
   </div>
   <div class="dialog__foot">
@@ -537,7 +528,6 @@
     { key: "healthConcerns", label: "主要健康困扰", id: "HealthConcerns" },
     { key: "mobility", label: "行动/自理情况", id: "Mobility" },
     { key: "emergencyContact", label: "紧急联系人", id: "EmergencyContact" },
-    { key: "emergencyPhone", label: "紧急联系电话", id: "EmergencyPhone" },
   ];
 
   var $ = function (id) { return document.getElementById(id); };

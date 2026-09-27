@@ -2,7 +2,7 @@
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .config import get_settings
 from .dialogue.prompt import DEFAULT_PERSONALITY
@@ -37,6 +37,14 @@ class ChatRequest(BaseModel):
         default=None,
         description="用户自述的陪护信息（前端采集，未经核实，仅用于个性化陪伴）",
     )
+
+    @field_validator("message")
+    @classmethod
+    def _reject_blank_message(cls, value: str) -> str:
+        """拒绝纯空白消息，避免空转 LLM 与无意义落库。"""
+        if not value or not value.strip():
+            raise ValueError("message 不能为纯空白")
+        return value
 
 
 class ChatResponse(BaseModel):
@@ -125,7 +133,7 @@ class TaxonomyResponse(BaseModel):
 
 
 class ProfileRequest(BaseModel):
-    """欢迎流程采集的 10 项资料（与前端字段一一对应）。"""
+    """欢迎流程采集的非隐私资料（与前端字段一一对应）。"""
 
     user_id: Optional[str] = Field(default=None, description="已有用户 id；缺省则新建")
     name: str = ""
@@ -137,7 +145,6 @@ class ProfileRequest(BaseModel):
     healthConcerns: str = ""
     mobility: str = ""
     emergencyContact: str = ""
-    emergencyPhone: str = ""
 
 
 class UserRecord(BaseModel):

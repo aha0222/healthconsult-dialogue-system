@@ -17,6 +17,7 @@ from ..profile import (
     build_known_info,
     load_json_dict,
     merge_profiles,
+    sanitize_collected,
 )
 from ..storage import Database
 from .llm_client import LLMClient
@@ -142,7 +143,7 @@ class MemoryManager:
             self.db.get_user(session.get("user_id")) if session.get("user_id") else None
         )
         if user:
-            collected = load_json_dict(user.get("collected"))
+            collected = sanitize_collected(load_json_dict(user.get("collected")))
             merged = merge_profiles(
                 load_json_dict(user.get("profile")),
                 load_json_dict(user.get("conversation_profile")),
@@ -168,7 +169,7 @@ class MemoryManager:
         """为尚未产生对话记忆的新会话组装用户级「已知信息」。"""
         if not user:
             return ""
-        collected = load_json_dict(user.get("collected"))
+        collected = sanitize_collected(load_json_dict(user.get("collected")))
         merged = merge_profiles(
             load_json_dict(user.get("profile")),
             load_json_dict(user.get("conversation_profile")),

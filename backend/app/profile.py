@@ -1,9 +1,9 @@
 """用户级档案与权威画像。
 
 职责：
-1. 把欢迎流程采集的 10 项资料映射为结构化画像（conditions / medications 直通，
-   过敏史 / 健康困扰 / 行动自理进入 notes，姓名 / 年龄 / 居住 / 紧急联系信息独立存放）；
-2. 对敏感字段（紧急联系电话等）脱敏，落库前统一处理；
+1. 把欢迎流程采集的资料映射为结构化画像（conditions / medications 直通，
+   过敏史 / 健康困扰 / 行动自理进入 notes，姓名 / 年龄 / 居住 / 紧急联系人独立存放）；
+2. 只采集对对话有切实帮助的非隐私信息；落库前对文本做手机号/证件号兜底脱敏；
 3. 合并「用户自述画像」与「对话提炼画像」，冲突时以用户自述为准；
 4. 生成唯一的「【已知信息】」块，供 system prompt 注入。
 """
@@ -33,17 +33,15 @@ COLLECTED_FIELDS = [
     "healthConcerns",
     "mobility",
     "emergencyContact",
-    "emergencyPhone",
 ]
 
-DEMOGRAPHIC_KEYS = ["name", "age", "living", "emergencyContact", "emergencyPhone"]
+DEMOGRAPHIC_KEYS = ["name", "age", "living", "emergencyContact"]
 
 DEMOGRAPHIC_LABELS = {
     "name": "称呼",
     "age": "年龄",
     "living": "居住",
     "emergencyContact": "紧急联系人",
-    "emergencyPhone": "紧急联系电话",
 }
 
 DISCLAIMER = (
@@ -71,24 +69,22 @@ def split_list(value) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def mask_phone(value) -> str:
-    """紧急联系电话脱敏：保留前 3 后 4 位，中间遮蔽。"""
-    text = str(value or "").strip()
-    digits = re.sub(r"\D", "", text)
-    if not digits:
-        return text
-    if len(digits) <= 7:
-        return digits[0] + "****" + digits[-1] if len(digits) > 1 else "****"
-    return digits[:3] + "****" + digits[-4:]
+def sanitize_collected(collected) -> dict:
+    """只保留当前采集字段，丢弃历史残留键（如已废弃的紧急联系电话）。"""
+    collected = collected or {}
+    return {
+        key: str(collected.get(key) or "").strip()
+        for key in COLLECTED_FIELDS
+    }
 
 
 def redact_collected(collected) -> dict:
-    """对采集字段统一脱敏：手机号遮蔽，其余字段清除手机号/身份证/银行卡。"""
+    """对采集字段做兜底脱敏：清除误填的手机号/身份证/银行卡号。"""
     cleaned = {}
     for key in COLLECTED_FIELDS:
         value = (collected or {}).get(key)
         value = str(value).strip() if value is not None else ""
-        cleaned[key] = mask_phone(value) if key == "emergencyPhone" else redact(value)
+        cleaned[key] = redact(value)
     return cleaned
 
 
