@@ -21,12 +21,7 @@ import logging
 from dataclasses import replace
 
 from ..config import Settings, get_settings
-from ..safety.safety_checker import (
-    check_reply,
-    detect_forbidden_literal,
-    detect_internal_leak_literal,
-    has_internal_leak,
-)
+from ..safety.safety_checker import check_reply, has_internal_leak
 from .classifier import SceneRiskClassifier
 from .llm_client import LLMClient
 from .markers import infer_risk_local, infer_tags_local, parse_marker
@@ -107,11 +102,11 @@ LEAK_DEFLECTION = (
     "您就跟我说说最近哪儿不舒服、心里有啥放不下的，我好好陪您想想办法，成吗？"
 )
 
-# 流式输出时，末尾标记最长约 32 字符，留足余量避免标记中途闪现
-MARKER_HOLDBACK = 48
-
-# 流式链路：这些高风险输入改为全量缓冲后校验再下发，杜绝不安全文本流式泄露
+# 流式链路：这些高风险输入整段一次性下发，不给任何中间态
 HIGH_RISK_STREAM = {"R3", "R2b"}
+
+# 低风险流式下发时，把「已通过完整安全校验」的正文切片发送的粒度（字符）
+STREAM_CHUNK_CHARS = 24
 
 
 def safe_fallback(risk, scenes=None) -> str:
@@ -272,12 +267,14 @@ class DialogueOrchestrator:
     ):
         """流式处理：逐段 yield ("delta", 文本)，最后 yield ("done", 结果字典)。
 
-        安全策略按输入风险分流：
-        - 高风险（R3/R2b）输入：全量缓冲，完整校验后再回传，全程不吐 delta，
-          命中红线时 done.reply 为保底话术，杜绝不安全文本逐字下发。
-        - 低风险输入：保留流式实时性，但对已缓冲内容做增量硬红线守护，
-          一旦命中立即停止下发并兜底。
-        结尾仍做标记解析与安全兜底；客户端以 done.reply 覆盖已显示正文。
+        安全策略：**先收齐模型输出、做完整安全校验，再下发正文**。
+        任何输入都不会在未校验的情况下把文本发给前端，因此不会出现
+        「已经输出一大段、命中红线后再截断/替换」的情况。
+
+        - 高风险（R3/R2b）输入：整段一次性下发（无 delta），命中红线时
+          done.reply 为保底话术。
+        - 低风险输入：下发已定稿的安全正文；为兼容前端逐字显示，按
+          `STREAM_CHUNK_CHARS` 切片成 delta，但内容不会再被撤回。
         """
         personality = normalize_personality(personality)
         classification = self._runtime_classification(message)
@@ -289,60 +286,24 @@ class DialogueOrchestrator:
         model = select_model(message, self.settings, risk=cls_risk)
 
         pre_risk = infer_risk_local(message)
-        _, pre_scenes = infer_tags_local(message)
 
-        # 高风险输入：先收齐、校验，再一次性回传，牺牲实时性换取零泄漏。
-        # 分类器与本地关键词任一判为高风险都走缓冲，避免漏网。
-        if pre_risk in HIGH_RISK_STREAM or cls_risk in HIGH_RISK_STREAM:
-            buffer = ""
-            for chunk in self.llm.chat_stream(messages, model=model):
-                buffer += chunk
-            result = self._finalize(
-                buffer, message, personality, model, pre_classification=classification
-            )
-            yield "done", result
-            return
-
+        # 先收齐、后校验：下发前必须经过 _finalize 的完整安全检查。
         buffer = ""
-        emitted = 0
         for chunk in self.llm.chat_stream(messages, model=model):
             buffer += chunk
-            # 增量守护：对已缓冲前缀做禁止话术 + 内部规则泄露的轻量检测。
-            if detect_forbidden_literal(buffer) or detect_internal_leak_literal(buffer):
-                result = dict(
-                    self._finalize(
-                        buffer,
-                        message,
-                        personality,
-                        model,
-                        pre_classification=classification,
-                    )
-                )
-                if not result["fallback_used"]:
-                    result["fallback_used"] = True
-                    result["violations"] = list(result.get("violations") or []) + [
-                        "stream_safety_guard"
-                    ]
-                    if detect_internal_leak_literal(buffer):
-                        result["reply"] = LEAK_DEFLECTION
-                    else:
-                        result["reply"] = safe_fallback(pre_risk, pre_scenes)
-                yield "done", result
-                return
-            safe = len(buffer) - MARKER_HOLDBACK
-            if safe > emitted:
-                yield "delta", buffer[emitted:safe]
-                emitted = safe
-
         result = self._finalize(
             buffer, message, personality, model, pre_classification=classification
         )
 
-        if not result["fallback_used"]:
-            remaining = result["reply"][emitted:]
-            if remaining:
-                yield "delta", remaining
+        # 高风险输入：整段一次性下发，全程无中间态，杜绝逐字泄露。
+        if pre_risk in HIGH_RISK_STREAM or cls_risk in HIGH_RISK_STREAM:
+            yield "done", result
+            return
 
+        # 低风险输入：正文已定稿且通过校验，切片下发只为前端逐字显示。
+        text = result["reply"]
+        for index in range(0, len(text), STREAM_CHUNK_CHARS):
+            yield "delta", text[index : index + STREAM_CHUNK_CHARS]
         yield "done", result
 
     def _finalize(

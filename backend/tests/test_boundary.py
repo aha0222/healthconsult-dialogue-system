@@ -196,6 +196,37 @@ def test_stream_passive_suicidal_ideation_escalates():
     assert ("热线" in result["reply"]) or ("心理" in result["reply"])
 
 
+def test_stream_low_risk_never_shows_then_retracts():
+    """低风险输入下，若回复最终会被兜底替换，前端也不得先看到被替换的正文。
+
+    用超长、且缺少「医生/药师」确认的用药回复复现：修复前会先流式展示一大段，
+    再由 done.reply 覆盖；修复后展示内容即最终内容，二者必须一致。
+    """
+    long_reply = (
+        "您先别着急，咱们慢慢说。血压的事情急不得，平时多注意休息，按时吃饭睡觉，"
+        "保持心情舒畅，别太劳累，有时间多出去走走晒晒太阳。"
+    ) * 3
+    orch = _orch(long_reply)
+    events = list(orch.respond_stream("降压药能停吗"))
+
+    streamed = "".join(payload for kind, payload in events if kind == "delta")
+    result = events[-1][1]
+
+    assert result["fallback_used"] is True, "该用药回复应触发兜底"
+    assert streamed == result["reply"], "展示内容必须等于最终内容，不能先展示再撤回"
+    assert long_reply[:40] not in streamed
+
+
+def test_stream_low_risk_streamed_equals_final_reply():
+    """正常低风险回复：分片下发的拼接结果与 done.reply 完全一致。"""
+    orch = _orch("您把血压记下来，带给医生看看。[RISK:R1]\n[SCENE:S3]")
+    events = list(orch.respond_stream("我血压有点高"))
+    streamed = "".join(payload for kind, payload in events if kind == "delta")
+    result = events[-1][1]
+    assert result["fallback_used"] is False
+    assert streamed == result["reply"]
+
+
 # ── 5. HTTP 接口边界（空/超长/注入标记）─────────────────────────
 
 def test_chat_rejects_blank_message(make_client):
