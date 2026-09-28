@@ -1,0 +1,12 @@
+# 语音独立服务依赖（空壳期只需 Web 框架；A 实现本地 ASR/TTS 后在此追加）
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.5
+# 注：/asr 用原始字节 body，不依赖 python-multipart
+
+# A 实现本地能力时预期追加（先注释，装好模型再放开）：
+# sherpa-onnx>=1.9          # 本地 ASR（CPU 可跑）
+# piper-tts>=1.2            # 本地 TTS
+# silero-vad>=5.1           # VAD / 打断
+# soundfile>=0.12           # wav 读写
+# numpy>=1.26

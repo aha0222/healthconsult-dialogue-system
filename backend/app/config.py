@@ -45,6 +45,9 @@
     PROMPT_COMPACT        典型低风险是否用精简 prompt（默认开启，减少 token）
     EXEMPLAR_CORPUS_PATH  运行时检索用的带回复语料，默认 skills/.../examples/corpus/v0.3.0_corpus500.jsonl
     EXEMPLAR_EMBEDDING_BACKEND 运行时检索的嵌入后端，默认 hash（零下载、可移植；可设 local/api）
+    VOICE_ENABLED         是否启用语音能力（独立 voice_service），默认关闭
+    OFFLINE_MODE          是否用本地/私有端点 LLM 替代云端，默认关闭（走云端）
+    SPEAKER_DETECT_ENABLED 是否启用说话人角色识别（默认关闭，恒按老人处理）
 """
 
 import os
@@ -186,6 +189,13 @@ class Settings:
     trusted_proxies: set = field(default_factory=set)
     alert_webhook_redact: bool = True
     max_profile_chars: int = 1000
+    # ── 第三周新增能力开关（默认全部关闭，保持现有行为不变）────────────
+    # 语音能力（独立进程 voice_service，前端直连；关闭时系统退化为打字版）
+    voice_enabled: bool = False
+    # 离线/私有化：用本地或私有端点 LLM 替代云端（providers.get_llm 依据此切换）
+    offline_mode: bool = False
+    # 说话人角色识别（关闭时恒按"老人本人"处理，与现状一致）
+    speaker_detect_enabled: bool = False
 
     @property
     def fast_model(self) -> str:
@@ -271,6 +281,11 @@ class Settings:
                 os.environ.get("ALERT_WEBHOOK_REDACT"), True
             ),
             max_profile_chars=int(os.environ.get("MAX_PROFILE_CHARS", "1000")),
+            voice_enabled=_to_bool(os.environ.get("VOICE_ENABLED"), False),
+            offline_mode=_to_bool(os.environ.get("OFFLINE_MODE"), False),
+            speaker_detect_enabled=_to_bool(
+                os.environ.get("SPEAKER_DETECT_ENABLED"), False
+            ),
             config_warnings=semantic_warnings + alert_warnings,
         )
 
