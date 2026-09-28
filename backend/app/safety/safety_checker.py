@@ -143,14 +143,6 @@ INTERNAL_LEAK_RE = re.compile(
     re.IGNORECASE,
 )
 
-# 流式增量守护用的「内部规则/术语泄露」字面量（不含风险代码与标记，避免误伤尾部标记）
-INTERNAL_LEAK_TERMS_RE = re.compile(
-    r'system\s*prompt|系统提示|提示词|内部规则|内部机制'
-    r'|自检清单|关键词清单|开发者模式|skill\.md'
-    r'|风险等级|场景分类|场景类别|分类逻辑|判断逻辑|判断依据|推理过程',
-    re.IGNORECASE,
-)
-
 ENGLISH_RESIDUAL_TERMS = [
     "blood pressure", "diabetes", "medication", "diagnosis",
     "symptom", "treatment", "patient", "doctor", "hospital"
@@ -302,15 +294,6 @@ def has_internal_leak(text):
     return bool(INTERNAL_LEAK_RE.search(text or ""))
 
 
-def detect_internal_leak_literal(text):
-    """轻量增量内部泄露检测：仅匹配内部术语字面量，供流式逐段守护复用。
-
-    与 has_internal_leak 同源，但刻意排除风险代码与 `[RISK:...]` / `[SCENE:...]`
-    标记，避免把回复末尾尚未剥离的标记误判为泄露。
-    """
-    return bool(INTERNAL_LEAK_TERMS_RE.search(text or ""))
-
-
 def has_english_residual(text):
     return any(p.lower() in text.lower() for p in ENGLISH_RESIDUAL_TERMS)
 
@@ -428,17 +411,6 @@ def check_reply(reply, risk=None, scenes=None, user_text=None):
             violations.append("用药场景未提及联系医生/药师/医院确认")
 
     return violations
-
-
-def detect_forbidden_literal(text):
-    """轻量增量硬红线检测：纯字面量命中，供流式逐段守护复用。
-
-    与 check_reply 共用同一套 FORBIDDEN_LITERALS，并先做否定句式过滤，
-    避免「不要自己加药」这类安全警告被误判；仅做本地、确定性判断，不产生
-    额外 LLM 调用。
-    """
-    cleaned = clean_negations(text or "")
-    return any(phrase in cleaned for phrase in FORBIDDEN_LITERALS)
 
 
 def validate_sample(sample, mode="generated_sft"):

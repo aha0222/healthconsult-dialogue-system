@@ -97,10 +97,8 @@ def apply_corrections(path, apply=False):
             continue
         new_reply = CORRECTIONS[sid]
         messages = row.get("messages", [])
-        old_reply = None
         for message in messages:
             if message.get("role") == "assistant":
-                old_reply = message.get("content")
                 message["content"] = new_reply
                 break
         row["risk_level"] = "R1"

@@ -23,7 +23,6 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent

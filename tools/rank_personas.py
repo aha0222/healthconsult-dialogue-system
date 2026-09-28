@@ -25,7 +25,6 @@ import argparse
 import json
 import os
 import random
-import re
 import statistics as st
 import sys
 import threading
@@ -50,6 +49,8 @@ try:
     load_dotenv(REPO_ROOT / ".env")
 except ImportError:
     pass
+
+from score_replies import parse_json_block  # noqa: E402
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
@@ -116,23 +117,6 @@ _write_lock = threading.Lock()
 def load_jsonl(path: Path) -> list:
     with open(path, encoding="utf-8") as f:
         return [json.loads(l) for l in f if l.strip()]
-
-
-def parse_json_block(raw: str):
-    text = raw.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"\{.*\}", text, flags=re.S)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return None
-    return None
 
 
 def build_jobs(rows: list, seed: int, limit: int = 0):

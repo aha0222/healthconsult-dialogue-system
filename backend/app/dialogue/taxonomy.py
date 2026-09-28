@@ -27,14 +27,6 @@ RISK_LABELS = {
     "R0": "低风险",
 }
 
-RISK_DEFINITIONS = {
-    "R3": "生命安全或人身安全直接受威胁（急症、心理危机、入室/火灾等）",
-    "R2b": "可能导致健康损害或财产损失的高风险行为，须今天/明天处理（咳血/黑便/摔倒不能站、诈骗进行中）",
-    "R2a": "需要专业介入但非紧急（自行调药/换药/停药、异常感知、慢病失控）",
-    "R1": "需要专业指导但非紧急（症状持续、用药疑问、慢病指标波动、情绪困扰）",
-    "R0": "日常健康咨询、生活方式建议与情感陪伴（饮食/运动/作息/社交/闲聊）",
-}
-
 # 高风险等级：触发模型路由到强模型、语义复核与告警
 HIGH_RISKS = ("R3", "R2b")
 
@@ -75,25 +67,6 @@ SCENE_LABELS = {
     "N3": "诈骗财产",
     "X1": "闲聊",
     "X2": "系统功能",
-}
-
-SCENE_DEFINITIONS = {
-    "S1": "描述身体不适、询问症状含义或应对方式",
-    "S2": "询问药物用法、剂量、副作用、能否停换、漏服处理",
-    "S3": "高血压、糖尿病等慢病的日常监测与生活方式调整",
-    "S4": "是否需要就医、挂什么科、如何向医生描述病情",
-    "M1": "孤独、焦虑、低落等情绪表达，需要共情陪伴",
-    "M2": "自伤/自杀倾向、严重抑郁等需要紧急干预",
-    "L1": "适合老年人的饮食建议与禁忌",
-    "L2": "适合的运动方式、康复训练",
-    "L3": "睡眠问题与作息调整",
-    "L4": "社交建议、活动推荐",
-    "E1": "胸痛、卒中、跌倒等急症的识别与应对",
-    "N1": "敲门求救、尾随、入室威胁等人身安全",
-    "N2": "起火、煤气泄漏、漏电漏水等环境安全",
-    "N3": "诈骗电话、冒充公检法、可疑链接等财产风险",
-    "X1": "与健康无关的日常闲聊",
-    "X2": "对系统本身功能/身份的询问",
 }
 
 # 场景必需的应急要素：回复中必须命中其一，否则视为缺失（safety_checker 使用）
@@ -137,9 +110,6 @@ LEGACY_RISK_MAP = {
     "R0": ("R0", ["L1"]),
     "X": ("R0", ["X1"]),
 }
-
-# 旧标记前缀 → 旧码前缀
-LEGACY_MARKER_PREFIXES = ("SITUATION:", "MENTAL:", "OTHER:")
 
 # 示例数据里的英文/中文场景名 → 新场景（迁移用）
 SCENE_ALIAS_MAP = {
@@ -206,33 +176,6 @@ def normalize_scenes(values) -> list:
         if scene and scene not in seen:
             seen.append(scene)
     return seen
-
-
-def is_valid_risk(value) -> bool:
-    return canonical_risk(value) != ""
-
-
-def is_valid_scene(value) -> bool:
-    return canonical_scene(value) != ""
-
-
-def legacy_to_tags(code) -> tuple:
-    """旧码 → (风险等级, [场景])。无法识别时回退 R0/X1。"""
-    raw = str(code or "").strip()
-    canonical = canonical_risk(raw)
-    if canonical:
-        return canonical, []
-    upper = raw.upper()
-    if upper in LEGACY_RISK_MAP:
-        risk, scenes = LEGACY_RISK_MAP[upper]
-        return risk, list(scenes)
-    # 旧 S/M/X 码
-    if upper.startswith("S") and upper in LEGACY_RISK_MAP:
-        risk, scenes = LEGACY_RISK_MAP[upper]
-        return risk, list(scenes)
-    if upper == "X":
-        return "R0", ["X1"]
-    return "R0", ["X1"]
 
 
 def scene_from_alias(value) -> str:

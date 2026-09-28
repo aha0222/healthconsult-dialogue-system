@@ -91,39 +91,6 @@
   background: var(--c-primary-soft);
 }
 
-/* ── 卡片 / 纸张 ──────────────────────────────────────────── */
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-}
-
-.paper {
-  background: linear-gradient(180deg, var(--c-paper) 0%, var(--c-paper-warm) 140%);
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-
-/* ── 标签 / 风险徽章 ──────────────────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 0.3em 0.75em;
-  border-radius: var(--radius-full);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.badge--primary { background: var(--c-primary-soft); color: var(--c-primary-strong); }
-.badge--honey { background: var(--c-honey-soft); color: #8a6314; }
-.badge--sage { background: var(--c-sage-soft); color: #2f6b3c; }
-.badge--danger { background: var(--c-danger-soft); color: var(--c-danger-strong); }
-
 /* 风险徽章：class 形如 risk--R3 */
 [class^="risk--"] {
   display: inline-flex;
@@ -139,7 +106,6 @@
 .risk--R3 { background: var(--risk-r3-bg); color: var(--risk-r3-fg); }
 .risk--R2b { background: var(--risk-r2b-bg); color: var(--risk-r2b-fg); }
 .risk--R2a { background: var(--risk-r2a-bg); color: var(--risk-r2a-fg); }
-.risk--R2 { background: var(--risk-r2a-bg); color: var(--risk-r2a-fg); }
 .risk--R1 { background: var(--risk-r1-bg); color: var(--risk-r1-fg); }
 .risk--R0 { background: var(--risk-r0-bg); color: var(--risk-r0-fg); }
 

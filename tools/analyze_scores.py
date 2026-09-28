@@ -200,11 +200,9 @@ def main():
     out("\n## 二、分维度得分\n")
     out("| 维度 | " + " | ".join(PERSONAS) + " | 区分度 |")
     out("|------|" + "------|" * (len(PERSONAS) + 1))
-    dim_matrix = {}
     for d in DIMENSIONS:
         mtx = build_matrix(rows, d)
         pm, sc = paired_matrix(mtx)
-        dim_matrix[d] = pm
         means = []
         for p in PERSONAS:
             vals = [pm[s][p] for s in sc if p in pm.get(s, {})]

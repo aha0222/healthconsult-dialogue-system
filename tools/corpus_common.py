@@ -84,10 +84,6 @@ SCENE_RISK_FLOOR = {
     "X1": "R0", "X2": "R0",
 }
 
-# 抽样审核时视为「必须全检」的安全场景
-SAFETY_SCENES = ("E1", "N1", "N2", "N3", "M2")
-
-
 # ── 篇幅区间（SKILL.md 第 8 节的机器可读副本）──────────────────────
 
 def length_range(risk: str, scene: str = "") -> tuple:
@@ -198,31 +194,6 @@ def cell_key(row: dict) -> tuple:
     return (primary_scene(row), risk)
 
 
-def distribute_counts(total: int, weights: dict, floors: dict = None) -> dict:
-    """按权重把 total 分配到各 key，用最大余数法保证合计恰好等于 total。
-
-    floors: {key: 最小条数}，先满足下限，剩余按权重分配。
-    """
-    floors = floors or {}
-    keys = list(weights)
-    result = {k: int(floors.get(k, 0)) for k in keys}
-    remaining = total - sum(result.values())
-    if remaining <= 0:
-        return result
-
-    total_w = sum(weights[k] for k in keys) or 1.0
-    exact = {k: remaining * weights[k] / total_w for k in keys}
-    for k in keys:
-        result[k] += int(exact[k])
-    # 余数补齐
-    left = total - sum(result.values())
-    if left > 0:
-        order = sorted(keys, key=lambda k: exact[k] - int(exact[k]), reverse=True)
-        for i in range(left):
-            result[order[i % len(order)]] += 1
-    return result
-
-
 def load_targets(path: Path = None) -> dict:
     path = Path(path) if path else TARGETS_PATH
     with open(path, encoding="utf-8") as f:
@@ -326,12 +297,3 @@ def tag_stats(rows: list) -> dict:
         "risk_coverage": len([k for k in risks if k]),
         "avg_scenes": round(total_tags / len(rows), 3) if rows else 0.0,
     }
-
-
-def shell_hint() -> str:
-    """给命令行工具用的简短说明。"""
-    return (
-        f"语料目录: {CORPUS_DIR}\n"
-        f"目标矩阵: {TARGETS_PATH}\n"
-        f"种子文件: {PILOT_SEEDS_PATH}"
-    )

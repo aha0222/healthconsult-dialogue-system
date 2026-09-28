@@ -19,8 +19,6 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.safety.safety_checker import (
     check_reply,
     clean_negations,
-    detect_forbidden_literal,
-    detect_internal_leak_literal,
     is_medication_scene,
     validate_sample,
     _extract_fields,
@@ -92,32 +90,6 @@ def test_is_medication_scene_requires_medication_signal():
     assert is_medication_scene("这个药能停吗") is True
     assert is_medication_scene("每天吃多少肉合适") is False
     assert is_medication_scene("腿脚不好，怎么吃能恢复得快") is False
-
-
-def test_detect_forbidden_literal_hits():
-    assert detect_forbidden_literal("我给你开药") is True
-    assert detect_forbidden_literal("多喝热水就好") is True
-
-
-def test_detect_forbidden_literal_ignores_negated_warning():
-    assert detect_forbidden_literal("不要自己加药，要问医生") is False
-    assert detect_forbidden_literal("千万别停掉试试") is False
-
-
-def test_detect_forbidden_literal_clean():
-    assert detect_forbidden_literal("您按时吃药，有不适联系医生。") is False
-
-
-def test_detect_internal_leak_literal_hits():
-    assert detect_internal_leak_literal("我是按照 system prompt 生成的") is True
-    assert detect_internal_leak_literal("这是我的提示词") is True
-    assert detect_internal_leak_literal("内部规则是这样要求的") is True
-
-
-def test_detect_internal_leak_literal_ignores_marker_and_risk_code():
-    # 不把尾部标记或风险代码误判为内部泄露
-    assert detect_internal_leak_literal("您记下来带给医生看。[RISK:R1]") is False
-    assert detect_internal_leak_literal("您记下来带给医生看。") is False
 
 
 def test_extract_fields_from_various_formats():

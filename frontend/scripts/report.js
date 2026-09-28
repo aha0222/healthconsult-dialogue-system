@@ -22,6 +22,18 @@
     return (n === null || n === undefined) ? "—" : n;
   }
 
+  function buildHead(headers) {
+    var thead = el("thead");
+    var hr = el("tr");
+    headers.forEach(function (h) {
+      var th = el("th", null, h);
+      th.scope = "col";
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    return thead;
+  }
+
   function renderFallback() {
     var msg = "评测数据未加载。请先运行 tools/export_persona_report_data.py " +
       "生成 frontend/data/personality_evaluation.js。";
@@ -64,15 +76,7 @@
   /* ── 场景覆盖表 ─────────────────────────────────────────── */
   function renderCoverage() {
     var table = $("coverageTable");
-    var thead = el("thead");
-    var hr = el("tr");
-    ["风险等级", "分组", "内容", "场景数"].forEach(function (h) {
-      var th = el("th", null, h);
-      th.scope = "col";
-      hr.appendChild(th);
-    });
-    thead.appendChild(hr);
-    table.appendChild(thead);
+    table.appendChild(buildHead(["风险等级", "分组", "内容", "场景数"]));
 
     var tbody = el("tbody");
     var total = 0;
@@ -122,15 +126,7 @@
   /* ── 三法交叉表 + 稳健性判断 ────────────────────────────── */
   function renderCross() {
     var table = $("crossTable");
-    var thead = el("thead");
-    var hr = el("tr");
-    ["人格", "强制排序", "人工抽检", "绝对打分", "综合判断"].forEach(function (h) {
-      var th = el("th", null, h);
-      th.scope = "col";
-      hr.appendChild(th);
-    });
-    thead.appendChild(hr);
-    table.appendChild(thead);
+    table.appendChild(buildHead(["人格", "强制排序", "人工抽检", "绝对打分", "综合判断"]));
 
     var tbody = el("tbody");
     var robust = [];
@@ -182,15 +178,7 @@
   function renderDimensions() {
     var table = $("dimTable");
     var names = DATA.personas.map(function (p) { return p.name; });
-    var thead = el("thead");
-    var hr = el("tr");
-    ["维度"].concat(names).concat(["区分度"]).forEach(function (h) {
-      var th = el("th", null, h);
-      th.scope = "col";
-      hr.appendChild(th);
-    });
-    thead.appendChild(hr);
-    table.appendChild(thead);
+    table.appendChild(buildHead(["维度"].concat(names).concat(["区分度"])));
 
     var tbody = el("tbody");
     DATA.dimensions.forEach(function (d) {

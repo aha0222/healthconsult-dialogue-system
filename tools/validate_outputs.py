@@ -28,13 +28,7 @@ from _paths import REPO_ROOT
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backend.app.safety.safety_checker import (
-    batch_validate,
-    check_reply,
-    clean_negations,
-    FORBIDDEN_LITERALS,
-    _extract_fields,
-)
+from backend.app.safety.safety_checker import batch_validate, _extract_fields
 
 
 def user_from_any(row):

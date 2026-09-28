@@ -73,17 +73,6 @@ def parse_memory_result(raw: str):
     return {"summary": summary, "profile": clean}
 
 
-def load_profile(raw):
-    """把数据库里的 profile 字符串解析为 dict。"""
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def build_memory_block(summary, profile) -> str:
     """把摘要与画像拼成注入 system prompt 的记忆块。"""
     parts = []
@@ -130,7 +119,7 @@ class MemoryManager:
                 logger.warning("记忆摘要更新失败: %s", exc)
 
         summary = session.get("summary")
-        profile = load_profile(session.get("profile"))
+        profile = load_json_dict(session.get("profile"))
         # 历史里的助手回复补回场景标记，避免模型模仿"无标记"格式而漏标
         history = []
         for m in all_messages[-self.settings.max_history :]:
@@ -143,7 +132,6 @@ class MemoryManager:
             self.db.get_user(session.get("user_id")) if session.get("user_id") else None
         )
         if user:
-            collected = sanitize_collected(load_json_dict(user.get("collected")))
             merged = merge_profiles(
                 load_json_dict(user.get("profile")),
                 load_json_dict(user.get("conversation_profile")),
@@ -151,7 +139,7 @@ class MemoryManager:
             conversation_summary = user.get("conversation_summary") or ""
             return {
                 "history": history,
-                "memory_block": build_known_info(merged, collected, conversation_summary),
+                "memory_block": self.known_info_for_user(user),
                 "summary": conversation_summary,
                 "profile": merged,
                 "user_id": user["id"],
@@ -193,7 +181,7 @@ class MemoryManager:
             existing_profile = load_json_dict(user.get("conversation_profile"))
         else:
             existing_summary = session.get("summary") or ""
-            existing_profile = load_profile(session.get("profile"))
+            existing_profile = load_json_dict(session.get("profile"))
 
         prompt = MEMORY_PROMPT.format(
             summary=existing_summary or "（无）",

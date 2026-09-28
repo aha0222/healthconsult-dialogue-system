@@ -52,9 +52,7 @@ def _is_emergency(text: str) -> bool:
         return True
     if _STROKE_RE.search(text):
         return True
-    if is_critical_emergency(text):
-        return True
-    return False
+    return is_critical_emergency(text)
 
 
 def parse_marker(raw: str):

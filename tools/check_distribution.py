@@ -15,7 +15,6 @@ import argparse
 import json
 import statistics as st
 import sys
-from collections import Counter, defaultdict
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent

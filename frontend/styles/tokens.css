@@ -18,33 +18,20 @@
   --c-ink: #2b2018;
   --c-ink-soft: #5c4b3d;
   --c-ink-muted: #8a7868;
-  --c-ink-faint: #b3a294;
 
   --c-primary: #e8722c;
   --c-primary-strong: #c85a18;
   --c-primary-soft: #fde4d2;
   --c-honey: #e8a33d;
   --c-honey-soft: #fcefd6;
-  --c-sage: #4f8a5b;
   --c-sage-soft: #e4f0e4;
-  --c-amber: #c97a16;
-  --c-amber-soft: #fbebd2;
   --c-danger: #c4432b;
   --c-danger-strong: #a32e1a;
   --c-danger-soft: #fbe0d9;
 
   /* ── 语义别名 ───────────────────────────────────────────── */
   --color-bg: var(--c-cream);
-  --color-surface: var(--c-paper);
-  --color-surface-warm: var(--c-paper-warm);
   --color-text: var(--c-ink);
-  --color-text-muted: var(--c-ink-muted);
-  --color-primary: var(--c-primary);
-  --color-accent: var(--c-honey);
-  --color-border: var(--c-border);
-  --color-success: var(--c-sage);
-  --color-warning: var(--c-amber);
-  --color-error: var(--c-danger);
 
   /* ── 风险等级色 ─────────────────────────────────────────── */
   --risk-r3-bg: #c4432b;  --risk-r3-fg: #ffffff;
@@ -52,8 +39,6 @@
   --risk-r2a-bg: #fbe0c4; --risk-r2a-fg: #8a4a12;
   --risk-r1-bg: #fcefd6;  --risk-r1-fg: #8a6314;
   --risk-r0-bg: #e4f0e4;  --risk-r0-fg: #2f6b3c;
-  /* ── 场景类别标签色 ─────────────────────────────────────── */
-  --scene-chip-bg: #e4f0e4; --scene-chip-fg: #2f6b3c;
 
   /* ── 字体 ───────────────────────────────────────────────── */
   --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -110,7 +95,6 @@
     radial-gradient(110% 80% at 100% 8%, #fdeede 0%, transparent 50%),
     radial-gradient(140% 120% at 50% 100%, #fff3e4 0%, transparent 60%);
 
-  --header-h: 4.75rem;
   --content-max: 56rem;
 }
 
@@ -130,7 +114,6 @@ html.hc {
   --c-ink: #000000;
   --c-ink-soft: #1a120b;
   --c-ink-muted: #3a2e24;
-  --c-ink-faint: #5c4b3d;
   --c-primary: #b3490c;
   --c-primary-strong: #8a3606;
   --c-primary-soft: #ffe3cf;

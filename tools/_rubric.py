@@ -88,10 +88,4 @@ def render_dimensions_text() -> str:
     return "\n\n".join(blocks)
 
 
-def anchors_compact(name: str) -> str:
-    """给人工评审页用的紧凑锚点（只显示 1/3/5）。"""
-    a = DIMENSIONS[name]["anchors"]
-    return f"1分 {a[1]}　|　3分 {a[3]}　|　5分 {a[5]}"
-
-
 DIMENSION_NAMES = list(DIMENSIONS)

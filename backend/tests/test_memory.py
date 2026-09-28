@@ -12,9 +12,9 @@ from backend.app.config import Settings
 from backend.app.dialogue.memory import (
     MemoryManager,
     build_memory_block,
-    load_profile,
     parse_memory_result,
 )
+from backend.app.profile import load_json_dict
 from backend.app.storage import Database
 
 
@@ -62,10 +62,10 @@ def test_parse_memory_result_embedded_and_invalid():
     assert parse_memory_result("不是 JSON") is None
 
 
-def test_load_profile():
-    assert load_profile(None) == {}
-    assert load_profile("bad json") == {}
-    assert load_profile('{"conditions": ["糖尿病"]}') == {"conditions": ["糖尿病"]}
+def test_load_json_dict():
+    assert load_json_dict(None) == {}
+    assert load_json_dict("bad json") == {}
+    assert load_json_dict('{"conditions": ["糖尿病"]}') == {"conditions": ["糖尿病"]}
 
 
 def test_build_memory_block():

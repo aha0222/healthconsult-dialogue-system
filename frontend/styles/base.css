@@ -161,11 +161,6 @@ strong {
   height: 1.125rem;
 }
 
-.icon--lg {
-  width: 1.875rem;
-  height: 1.875rem;
-}
-
 /* ── 自定义滚动条 ─────────────────────────────────────────── */
 * {
   scrollbar-width: thin;

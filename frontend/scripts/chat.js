@@ -113,6 +113,36 @@
     if (liveStatus) liveStatus.textContent = text;
   }
 
+  function fetchJson(url, options) {
+    return fetch(url, options).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return resp.json();
+    });
+  }
+
+  function throwHttpError(resp) {
+    return resp.json().catch(function () { return {}; }).then(function (err) {
+      throw new Error(err.detail || ("HTTP " + resp.status));
+    });
+  }
+
+  function setListMessage(listEl, text) {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    var p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = text;
+    listEl.appendChild(p);
+  }
+
+  function resetConversation() {
+    sessionId = null;
+    messages = [];
+    messagesEl.textContent = "";
+    welcomeEl.hidden = false;
+    setRiskAmbient(null);
+  }
+
   function formatTime(iso) {
     if (!iso) return "";
     var d = new Date(iso);
@@ -446,11 +476,7 @@
       body: JSON.stringify(body),
     })
       .then(function (resp) {
-        if (!resp.ok) {
-          return resp.json().catch(function () { return {}; }).then(function (err) {
-            throw new Error(err.detail || ("HTTP " + resp.status));
-          });
-        }
+        if (!resp.ok) return throwHttpError(resp);
         return resp.json();
       })
       .then(function (detail) {
@@ -525,7 +551,7 @@
       body.textContent = "";
 
       var info = memorySection("您告诉小暖的");
-      ["name", "age", "living", "conditions", "medications", "allergies", "healthConcerns", "mobility", "emergencyContact"].forEach(function (key) {
+      Object.keys(COLLECTED_LABELS).forEach(function (key) {
         var value = collected[key];
         if (value) info.appendChild(memoryRow(COLLECTED_LABELS[key], value));
       });
@@ -570,22 +596,14 @@
 
     var listEl = $("switchUserList");
     if (!listEl) return;
-    listEl.innerHTML = "";
-    var loading = document.createElement("p");
-    loading.className = "empty";
-    loading.textContent = "加载中…";
-    listEl.appendChild(loading);
+    setListMessage(listEl, "加载中…");
 
     var base = backendBase();
     if (!base) {
       renderSwitchUserEmpty("请先在设置里配置后端地址");
       return;
     }
-    fetch(base + "/api/users", { headers: authHeaders() })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        return resp.json();
-      })
+    fetchJson(base + "/api/users", { headers: authHeaders() })
       .then(renderSwitchUserList)
       .catch(function (e) {
         renderSwitchUserEmpty("加载失败：" + e.message);
@@ -593,13 +611,7 @@
   }
 
   function renderSwitchUserEmpty(text) {
-    var listEl = $("switchUserList");
-    if (!listEl) return;
-    listEl.innerHTML = "";
-    var p = document.createElement("p");
-    p.className = "empty";
-    p.textContent = text;
-    listEl.appendChild(p);
+    setListMessage($("switchUserList"), text);
   }
 
   function renderSwitchUserList(users) {
@@ -639,11 +651,7 @@
   function bindUser(userId) {
     var base = backendBase();
     if (!base) return;
-    fetch(base + "/api/users/" + encodeURIComponent(userId), { headers: authHeaders() })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        return resp.json();
-      })
+    fetchJson(base + "/api/users/" + encodeURIComponent(userId), { headers: authHeaders() })
       .then(function (detail) {
         setUserId(detail.id);
         if (window.Xiaonuan.setLocalProfile) {
@@ -651,11 +659,7 @@
         }
         renderMemory(detail);
 
-        sessionId = null;
-        messages = [];
-        messagesEl.textContent = "";
-        welcomeEl.hidden = false;
-        setRiskAmbient(null);
+        resetConversation();
 
         var dialog = $("switchUserDialog");
         if (dialog) dialog.close();
@@ -866,11 +870,7 @@
 
   function newConversation() {
     if (isGenerating) return;
-    sessionId = null;
-    messages = [];
-    messagesEl.textContent = "";
-    welcomeEl.hidden = false;
-    setRiskAmbient(null);
+    resetConversation();
     showSystemMsg("已开始新对话");
   }
 
@@ -882,17 +882,9 @@
       renderSessionEmpty("请先在设置里配置后端地址");
       return;
     }
-    sessionListEl.innerHTML = "";
-    var loading = document.createElement("p");
-    loading.className = "empty";
-    loading.textContent = "加载中…";
-    sessionListEl.appendChild(loading);
+    setListMessage(sessionListEl, "加载中…");
 
-    fetch(base + "/api/sessions", { headers: authHeaders() })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        return resp.json();
-      })
+    fetchJson(base + "/api/sessions", { headers: authHeaders() })
       .then(renderSessionList)
       .catch(function (e) {
         renderSessionEmpty("加载失败：" + e.message);
@@ -900,11 +892,7 @@
   }
 
   function renderSessionEmpty(text) {
-    sessionListEl.innerHTML = "";
-    var p = document.createElement("p");
-    p.className = "empty";
-    p.textContent = text;
-    sessionListEl.appendChild(p);
+    setListMessage(sessionListEl, text);
   }
 
   function renderSessionList(sessions) {
@@ -948,11 +936,7 @@
   }
 
   function loadSession(id) {
-    fetch(backendBase() + "/api/sessions/" + encodeURIComponent(id), { headers: authHeaders() })
-      .then(function (resp) {
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        return resp.json();
-      })
+    fetchJson(backendBase() + "/api/sessions/" + encodeURIComponent(id), { headers: authHeaders() })
       .then(function (detail) {
         renderSessionMessages(detail);
         historyDialog.close();
@@ -1057,11 +1041,7 @@
       body: JSON.stringify(payload),
     })
       .then(function (resp) {
-        if (!resp.ok) {
-          return resp.json().catch(function () { return {}; }).then(function (err) {
-            throw new Error(err.detail || ("HTTP " + resp.status));
-          });
-        }
+        if (!resp.ok) return throwHttpError(resp);
         if (!resp.body) throw new Error("当前浏览器不支持流式响应");
         return readStream(resp.body);
       })

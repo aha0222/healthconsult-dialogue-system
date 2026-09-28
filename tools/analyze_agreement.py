@@ -19,8 +19,6 @@
 
 import argparse
 import csv
-import json
-import math
 import random
 import statistics as st
 import sys
@@ -33,6 +31,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from _paths import RESULTS_DIR, EXAMPLES_DIR  # noqa: E402
 from _rubric import DIMENSION_NAMES as DIMENSIONS  # noqa: E402
+from analyze_scores import spearman  # noqa: E402
 
 PERSONAS = ["温婉邻居型", "贴心闺女型", "素朴家常型", "从容守护型"]
 DEFAULT_KEY = EXAMPLES_DIR / "manual_review" / "manual_review_KEY_single_请勿提前打开.csv"
@@ -45,31 +44,6 @@ N_BOOT = 1000
 def read_csv(path: Path) -> list:
     with open(path, encoding="utf-8-sig") as f:
         return list(csv.DictReader(f))
-
-
-def spearman(xs, ys):
-    if len(xs) < 3:
-        return 0.0
-
-    def rank(v):
-        order = sorted(range(len(v)), key=lambda i: v[i])
-        r = [0.0] * len(v)
-        i = 0
-        while i < len(order):
-            j = i
-            while j + 1 < len(order) and v[order[j + 1]] == v[order[i]]:
-                j += 1
-            avg = (i + j) / 2 + 1
-            for k in range(i, j + 1):
-                r[order[k]] = avg
-            i = j + 1
-        return r
-
-    rx, ry = rank(xs), rank(ys)
-    mx, my = st.mean(rx), st.mean(ry)
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
-    den = math.sqrt(sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry))
-    return num / den if den else 0.0
 
 
 def boot_ci(vals, rng, n=N_BOOT):
@@ -132,7 +106,6 @@ def main():
     out("\n## 一、分维度一致性\n")
     out("| 维度 | 人工均分 | 大模型均分 | 偏差(人−模) | Spearman ρ | 完全一致 | 相差≤1 |")
     out("|------|---------|-----------|------------|-----------|---------|--------|")
-    dim_stats = {}
     for d in DIMENSIONS:
         hs = [int(human[r][d]) for r in joined if human[r].get(d)]
         ls = [int(key[r]["大模型_" + d]) for r in joined if key[r].get("大模型_" + d)]
@@ -144,7 +117,6 @@ def main():
         exact = sum(1 for x in diff if x == 0) / n
         within1 = sum(1 for x in diff if abs(x) <= 1) / n
         rho = spearman(hs, ls)
-        dim_stats[d] = {"human": st.mean(hs), "llm": st.mean(ls), "bias": st.mean(diff), "rho": rho}
         out(f"| {d} | {st.mean(hs):.2f} | {st.mean(ls):.2f} | {st.mean(diff):+.2f} "
             f"| {rho:+.3f} | {exact*100:.0f}% | {within1*100:.0f}% |")
 

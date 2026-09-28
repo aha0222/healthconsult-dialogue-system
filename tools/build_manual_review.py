@@ -58,10 +58,6 @@ from _rubric import (  # noqa: E402
 )
 
 DIMENSION_HINT = {n: RUBRIC[n]["hint"] for n in DIMENSIONS}
-DIMENSION_ANCHORS = {
-    n: "　".join(f"<b>{k}分</b> {v}" for k, v in sorted(RUBRIC[n]["anchors"].items()))
-    for n in DIMENSIONS
-}
 
 # 单条模式的抽样比例。高危场景过采样，但控制总量在 25% 左右。
 SINGLE_RATE_BY_RISK = {

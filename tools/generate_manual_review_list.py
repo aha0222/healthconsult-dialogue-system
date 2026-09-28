@@ -102,7 +102,7 @@ def main():
         writer.writerows(rows)
 
     print(f"人工抽查清单已生成：{out_path}")
-    print(f"共 {rows.__len__()} 条需要抽查（占总样本比例见输出）")
+    print(f"共 {len(rows)} 条需要抽查（占总样本比例见输出）")
 
 
 if __name__ == "__main__":

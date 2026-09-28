@@ -10,7 +10,7 @@ import re
 from functools import lru_cache
 
 from ..paths import SKILL_MD
-from .taxonomy import RISK_LABELS, SCENE_LABELS
+from .taxonomy import RISK_LABELS
 
 DEFAULT_PERSONALITY = "温婉邻居型"
 
@@ -48,7 +48,6 @@ PERSONALITY_DESCRIPTIONS = {
 # 风险等级 / 场景类别 → 中文标签（与 taxonomy 保持一致）
 __all__ = [
     "RISK_LABELS",
-    "SCENE_LABELS",
     "DEFAULT_PERSONALITY",
     "PERSONALITY_OVERLAYS",
     "PERSONALITY_DESCRIPTIONS",
