@@ -189,7 +189,7 @@ class Settings:
     trusted_proxies: set = field(default_factory=set)
     alert_webhook_redact: bool = True
     max_profile_chars: int = 1000
-    # ── 第三周新增能力开关（默认全部关闭，保持现有行为不变）────────────
+    # ── 第三阶段新增能力开关（默认全部关闭，保持现有行为不变）──────────
     # 语音能力（独立进程 voice_service，前端直连；关闭时系统退化为打字版）
     voice_enabled: bool = False
     # 离线/私有化：用本地或私有端点 LLM 替代云端（providers.get_llm 依据此切换）
