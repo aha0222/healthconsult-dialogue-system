@@ -69,13 +69,16 @@ python -m venv .venv
 | `DEEPSEEK_API_KEY` | 大模型 API Key（**必填**，仅在服务端保存） | 空 |
 | `DEEPSEEK_BASE_URL` | 兼容 OpenAI 的接口地址 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 模型名 | `deepseek-flash` |
-| `CORS_ORIGINS` | 允许的前端来源，逗号分隔 | `*` |
+| `CORS_ORIGINS` | 允许的前端来源，逗号分隔（请显式列出） | `http://127.0.0.1:8000,http://localhost:8000,null` |
 | `MAX_HISTORY` | 携带的历史消息条数上限 | `10` |
 | `DB_PATH` | SQLite 数据库文件路径 | `backend/data/sessions.db` |
 | `XIAONUAN_REPO_ROOT` | 非标准部署时覆盖仓库根目录（可选） | 按文件层级自动推导 |
 | `XIAONUAN_SKILL_DIR` | 非标准部署时覆盖 skill 目录（可选，优先于 `XIAONUAN_REPO_ROOT`） | 自动推导 |
 | `BACKEND_API_KEY` | 后端访问密钥；**留空则关闭鉴权**（仅建议本地） | 空 |
+| `BACKEND_API_KEYS` | 额外的多用户密钥，逗号分隔（任一匹配即通过） | 空 |
+| `ENVIRONMENT` | 运行环境；`production` 下缺鉴权或 CORS 通配会拒绝启动 | `development` |
 | `RATE_LIMIT_PER_MINUTE` | 每 IP 每分钟请求上限；`0` 关闭 | `60` |
+| `TRUSTED_PROXIES` | 仅这些代理（IP/CIDR）的 `X-Forwarded-For` 被采信；留空则一律用直连 IP | 空 |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `LOG_FORMAT` | `json` 或 `plain` | `plain` |
 | `SEMANTIC_CHECK` | 是否开启高风险语义复核（`1`/`true`） | `1` |
@@ -83,10 +86,12 @@ python -m venv .venv
 | `SEMANTIC_CHECK_FALLBACK` | 语义复核判定不安全时是否替换为安全话术 | `1` |
 | `ALERT_RISKS` | 触发告警的风险等级，逗号分隔 | `R3,R2b` |
 | `ALERT_WEBHOOK_URL` | 告警 webhook 地址（为空仅记日志） | 空 |
+| `ALERT_WEBHOOK_REDACT` | webhook 是否脱敏（只推结构化字段+原文长度/哈希） | `1` |
 | `SUMMARY_ENABLED` | 是否开启长会话滚动摘要与画像 | `1` |
 | `SUMMARY_THRESHOLD` | 消息数超过该值才触发摘要 | `20` |
 | `SUMMARY_KEEP_RECENT` | 摘要时保留最近多少条原文 | `10` |
 | `MAX_MESSAGE_CHARS` | 单条用户消息最大字符数 | `2000` |
+| `MAX_PROFILE_CHARS` | 单条用户自述资料 / `user_profile` 最大字符数 | `1000` |
 | `MAX_HISTORY_ITEMS` | 单次请求历史消息条数上限 | `20` |
 | `MAX_TOKENS` | 单次回复最大 token | `600` |
 | `TEMPERATURE` | 采样温度 | `0.7` |
@@ -134,15 +139,19 @@ python -m venv .venv
 ## 安全加固
 
 - **第二层（关键词快检）**：`safety/safety_checker.py`，覆盖开药/调药/劝退就医/轻视症状/贴标签等硬红线，命中即替换为 `orchestrator.SAFE_FALLBACKS` 的安全话术。
-- **第三层（语义复核）**：`safety/semantic_checker.py`。**默认对 `R3,M0,S0` 开启**（`SEMANTIC_CHECK=1`），仅对 `SEMANTIC_CHECK_RISKS` 中的高风险等级额外调一次 LLM 审核，抓关键词漏掉的换说法越界；设为 `SEMANTIC_CHECK=0` 可关闭。复核失败不阻断主链路，仅记录 `semantic_check_error`。
-- **高危告警**：`alerts.py`。命中兜底或风险等级在 `ALERT_RISKS` 内时记录 `high_risk_alert`，配置 `ALERT_WEBHOOK_URL` 则 POST 推送（3s 超时，失败不影响对话）。
+- **第三层（语义复核）**：`safety/semantic_checker.py`。**默认对 `R3,R2b` 开启**（`SEMANTIC_CHECK=1`），仅对 `SEMANTIC_CHECK_RISKS` 中的高风险等级额外调一次 LLM 审核，抓关键词漏掉的换说法越界；设为 `SEMANTIC_CHECK=0` 可关闭。复核失败不阻断主链路，仅记录 `semantic_check_error`。
+- **高危告警**：`alerts.py`。命中兜底或风险等级在 `ALERT_RISKS` 内时记录 `high_risk_alert`，配置 `ALERT_WEBHOOK_URL` 则 POST 推送（后台线程、3s 超时，失败不影响对话）。
+- **隐私**：日志与 webhook 默认**不落老人原话/回复正文**，只保留结构化字段与原文字数 + SHA-256 短指纹；确需原文可设 `ALERT_WEBHOOK_REDACT=0`（webhook）或调整日志级别。
+- **配置校验**：风险等级配置会做 `canonical_risk` 规范化，非法值（如历史遗留的 `M0/S0`）会被过滤、回退安全默认并写入 `config_warnings`，通过 `/api/health` 暴露，避免静默缩小安全层。
 - **审计**：每次成功回复落 `audit_log`（含 `risk`/`violations`/`fallback_used`/`latency_ms`），可用 `/api/audit` 复盘。
 - **红队回归**：`tests/redline_cases.jsonl` 覆盖正例与反例，CI 自动跑；新增安全规则必须补用例。
 
 ## 鉴权与限流
 
-- 配置了 `BACKEND_API_KEY` 后，除 `/api/health` 外的接口都需要请求头 `X-API-Key: <key>`，否则返回 `401`。
+- 配置了 `BACKEND_API_KEY`（及可选的 `BACKEND_API_KEYS` 多密钥）后，除 `/api/health` 外的接口都需要请求头 `X-API-Key: <key>`，否则返回 `401`；比较使用 `hmac.compare_digest` 常量时间实现。
 - 超过 `RATE_LIMIT_PER_MINUTE` 时返回 `429`，并带 `Retry-After` 头。
+- **代理与真实 IP**：仅当直连来源在 `TRUSTED_PROXIES` 内时才采信 `X-Forwarded-For`，否则回退 `request.client.host`，防止伪造 XFF 绕过限流。
+- **启动校验**：`ENVIRONMENT=production` 时，若未配置鉴权或 `CORS_ORIGINS=*` 会在启动阶段直接拒绝启动；开发环境仅打印告警。
 - 限流为单进程内存实现；多副本部署请替换为 Redis 等共享存储。
 
 ## 运行
@@ -242,7 +251,7 @@ set BACKEND_API_KEY=your-secret
 
 ### `GET /api/health`
 
-返回 `{ "status": "ok", "model": "...", "has_api_key": true, "auth_enabled": false }`。此接口无需鉴权。
+返回 `{ "status": "ok", "model": "...", "auth_enabled": false, "config_warnings": [] }`。出于信息最小化，不再返回 `has_api_key`；`config_warnings` 暴露非法配置等启动告警。此接口无需鉴权。
 
 ### `GET /api/personalities`
 

@@ -1,6 +1,5 @@
 """evaluation.py 单元测试：评测集加载与风险分级打分。"""
 
-import json
 import sys
 from pathlib import Path
 
@@ -9,7 +8,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.dialogue.markers import infer_risk_local, infer_tags_local
-from backend.app.evaluation import evaluate_risk, evaluate_tags, load_cases
+from backend.app.evaluation import (
+    check_thresholds,
+    evaluate_risk,
+    evaluate_tags,
+    load_cases,
+)
 
 EVAL_CASES = Path(__file__).resolve().parent / "eval" / "risk_cases.jsonl"
 
@@ -44,8 +48,30 @@ def test_local_predictor_meets_baseline():
     """本地兜底分级器在评测集上的准确率不应明显退化。"""
     cases = load_cases(EVAL_CASES)
     metrics = evaluate_risk(infer_risk_local, cases)
-    assert metrics["total"] >= 15
-    assert metrics["accuracy"] >= 0.8, metrics["mismatches"]
+    assert metrics["total"] >= 30
+    assert metrics["accuracy"] >= 0.85, metrics["mismatches"]
+    # 分层门禁：R3/R2b 单独盯，避免被大量低风险样本掩盖退化
+    assert check_thresholds(
+        metrics, min_accuracy=0.85, min_risk_accuracy={"R3": 0.9, "R2b": 0.9}
+    ) == []
+
+
+def test_check_thresholds_flags_degenerate_predictor():
+    """人为把分级器退化成"永远返回 R0"，分层门禁必须 FAIL。"""
+    cases = load_cases(EVAL_CASES)
+    metrics = evaluate_risk(lambda text: "R0", cases)
+    failures = check_thresholds(
+        metrics, min_accuracy=0.85, min_risk_accuracy={"R3": 0.9, "R2b": 0.9}
+    )
+    assert failures
+    assert any("R3" in f for f in failures)
+    assert any("R2b" in f for f in failures)
+
+
+def test_check_thresholds_flags_missing_risk_samples():
+    metrics = {"accuracy": 1.0, "per_risk": {"R3": {"total": 0, "accuracy": 0.0}}}
+    failures = check_thresholds(metrics, min_risk_accuracy={"R3": 0.9})
+    assert any("无评测样本" in f for f in failures)
 
 
 def test_evaluate_tags_metrics():

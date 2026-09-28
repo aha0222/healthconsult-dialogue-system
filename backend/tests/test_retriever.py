@@ -9,7 +9,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.dialogue.retriever import (
-    CorpusItem,
     HashEmbedder,
     Retriever,
     cosine,

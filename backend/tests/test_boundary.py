@@ -23,7 +23,6 @@ from backend.app.dialogue.orchestrator import DialogueOrchestrator, safe_fallbac
 from backend.app.dialogue.retriever import HashEmbedder, Retriever
 from backend.app.safety.safety_checker import (
     check_reply,
-    detect_scenes,
     is_critical_emergency,
 )
 

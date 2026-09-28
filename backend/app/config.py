@@ -51,6 +51,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from .dialogue.taxonomy import canonical_risk
 from .paths import REPO_ROOT
 
 try:  # .env 为可选依赖，缺失时静默跳过
@@ -63,6 +64,8 @@ except ImportError:  # pragma: no cover
 DEFAULT_DB_PATH = REPO_ROOT / "backend" / "data" / "sessions.db"
 DEFAULT_SEMANTIC_RISKS = "R3,R2b"
 DEFAULT_ALERT_RISKS = "R3,R2b"
+# 显式本地来源：127.0.0.1:8000 / localhost:8000，以及 file:// 页面的 Origin（null）
+DEFAULT_CORS_ORIGINS = "http://127.0.0.1:8000,http://localhost:8000,null"
 DEFAULT_CORPUS_PATH = (
     REPO_ROOT / "backend" / "app" / "dialogue" / "corpus" / "scene_risk_corpus.jsonl"
 )
@@ -81,6 +84,46 @@ def _split_set(raw: str):
     return {item.strip().upper() for item in raw.split(",") if item.strip()}
 
 
+def _split_set_multi(raw: str):
+    """逗号分隔、保留原始大小写的集合（用于 API Key / 受信代理）。"""
+    return {item.strip() for item in (raw or "").split(",") if item.strip()}
+
+
+def _canonical_only(raw: str) -> set:
+    """把逗号分隔的风险等级规范化为合法集合（保持 R2a/R2b 大小写）。"""
+    return {
+        canonical
+        for canonical in (canonical_risk(item) for item in (raw or "").split(","))
+        if canonical
+    }
+
+
+def _canonical_risk_set(raw: str, default: str) -> tuple[set, list]:
+    """规范化逗号分隔的风险等级配置。
+
+    非法等级（如历史遗留的 M0/S0）会被过滤并记录告警，同时回退到安全默认值，
+    避免配置写错时静默缩小语义复核/告警范围。
+    返回 (合法集合, 告警列表)。
+    """
+    tokens = [item.strip() for item in (raw or "").split(",") if item.strip()]
+    valid = set()
+    invalid = []
+    for token in tokens:
+        canonical = canonical_risk(token)
+        if canonical:
+            valid.add(canonical)
+        else:
+            invalid.append(token)
+
+    if invalid:
+        return _canonical_only(default), [
+            f"非法风险等级配置 {invalid}，已回退安全默认 {default}"
+        ]
+    if not valid:
+        return _canonical_only(default), []
+    return valid, []
+
+
 def _to_bool(raw: str, default: bool = False) -> bool:
     if raw is None:
         return default
@@ -92,7 +135,9 @@ class Settings:
     api_key: str = ""
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-flash"
-    cors_origins: list = field(default_factory=lambda: ["*"])
+    cors_origins: list = field(
+        default_factory=lambda: _split_origins(DEFAULT_CORS_ORIGINS)
+    )
     max_history: int = 10
     temperature: float = 0.7
     max_tokens: int = 600
@@ -104,10 +149,10 @@ class Settings:
     log_format: str = "plain"
     semantic_check: bool = True
     semantic_check_risks: set = field(
-        default_factory=lambda: _split_set(DEFAULT_SEMANTIC_RISKS)
+        default_factory=lambda: _canonical_only(DEFAULT_SEMANTIC_RISKS)
     )
     semantic_check_fallback: bool = True
-    alert_risks: set = field(default_factory=lambda: _split_set(DEFAULT_ALERT_RISKS))
+    alert_risks: set = field(default_factory=lambda: _canonical_only(DEFAULT_ALERT_RISKS))
     alert_webhook_url: str = ""
     summary_enabled: bool = True
     summary_threshold: int = 20
@@ -135,6 +180,12 @@ class Settings:
     prompt_compact: bool = True
     exemplar_corpus_path: str = str(DEFAULT_EXEMPLAR_CORPUS_PATH)
     exemplar_embedding_backend: str = "hash"
+    config_warnings: list = field(default_factory=list)
+    environment: str = "development"
+    backend_api_keys: set = field(default_factory=set)
+    trusted_proxies: set = field(default_factory=set)
+    alert_webhook_redact: bool = True
+    max_profile_chars: int = 1000
 
     @property
     def fast_model(self) -> str:
@@ -146,11 +197,21 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        semantic_risks, semantic_warnings = _canonical_risk_set(
+            os.environ.get("SEMANTIC_CHECK_RISKS", DEFAULT_SEMANTIC_RISKS),
+            DEFAULT_SEMANTIC_RISKS,
+        )
+        alert_risks, alert_warnings = _canonical_risk_set(
+            os.environ.get("ALERT_RISKS", DEFAULT_ALERT_RISKS),
+            DEFAULT_ALERT_RISKS,
+        )
         return cls(
             api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
             base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
             model=os.environ.get("DEEPSEEK_MODEL", "deepseek-flash"),
-            cors_origins=_split_origins(os.environ.get("CORS_ORIGINS", "*")),
+            cors_origins=_split_origins(
+                os.environ.get("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+            ),
             max_history=int(os.environ.get("MAX_HISTORY", "10")),
             db_path=os.environ.get("DB_PATH", str(DEFAULT_DB_PATH)),
             backend_api_key=os.environ.get("BACKEND_API_KEY", ""),
@@ -158,13 +219,11 @@ class Settings:
             log_level=os.environ.get("LOG_LEVEL", "INFO"),
             log_format=os.environ.get("LOG_FORMAT", "plain"),
             semantic_check=_to_bool(os.environ.get("SEMANTIC_CHECK"), True),
-            semantic_check_risks=_split_set(
-                os.environ.get("SEMANTIC_CHECK_RISKS", DEFAULT_SEMANTIC_RISKS)
-            ),
+            semantic_check_risks=semantic_risks,
             semantic_check_fallback=_to_bool(
                 os.environ.get("SEMANTIC_CHECK_FALLBACK"), True
             ),
-            alert_risks=_split_set(os.environ.get("ALERT_RISKS", DEFAULT_ALERT_RISKS)),
+            alert_risks=alert_risks,
             alert_webhook_url=os.environ.get("ALERT_WEBHOOK_URL", ""),
             summary_enabled=_to_bool(os.environ.get("SUMMARY_ENABLED"), True),
             summary_threshold=int(os.environ.get("SUMMARY_THRESHOLD", "20")),
@@ -205,6 +264,14 @@ class Settings:
             exemplar_embedding_backend=os.environ.get(
                 "EXEMPLAR_EMBEDDING_BACKEND", "hash"
             ).strip().lower(),
+            environment=os.environ.get("ENVIRONMENT", "development").strip().lower(),
+            backend_api_keys=_split_set_multi(os.environ.get("BACKEND_API_KEYS", "")),
+            trusted_proxies=_split_set_multi(os.environ.get("TRUSTED_PROXIES", "")),
+            alert_webhook_redact=_to_bool(
+                os.environ.get("ALERT_WEBHOOK_REDACT"), True
+            ),
+            max_profile_chars=int(os.environ.get("MAX_PROFILE_CHARS", "1000")),
+            config_warnings=semantic_warnings + alert_warnings,
         )
 
     @property
@@ -212,8 +279,16 @@ class Settings:
         return bool(self.api_key)
 
     @property
+    def all_backend_api_keys(self) -> set:
+        """所有被接受的后端密钥（单 key 与多 key 兼容）。"""
+        keys = set(self.backend_api_keys)
+        if self.backend_api_key:
+            keys.add(self.backend_api_key)
+        return keys
+
+    @property
     def auth_enabled(self) -> bool:
-        return bool(self.backend_api_key)
+        return bool(self.all_backend_api_keys)
 
 
 @lru_cache(maxsize=1)

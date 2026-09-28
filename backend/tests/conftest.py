@@ -13,7 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app import main as main_module
 from backend.app.config import Settings
 from backend.app.dialogue.orchestrator import DialogueOrchestrator
-from backend.app.main import app, get_cache, get_db, get_memory, get_orchestrator
+from backend.app.main import app, get_db, get_orchestrator
 from backend.app.security import limiter
 from backend.app.storage import Database
 
@@ -43,6 +43,7 @@ def make_client(tmp_path):
         error=None,
         api_key="",
         backend_api_key="",
+        backend_api_keys=None,
         rate_limit=0,
         cache_enabled=False,
     ):
@@ -52,6 +53,7 @@ def make_client(tmp_path):
         app.dependency_overrides[get_db] = lambda: db
         main_module.settings.api_key = api_key
         main_module.settings.backend_api_key = backend_api_key
+        main_module.settings.backend_api_keys = set(backend_api_keys or ())
         main_module.settings.rate_limit_per_minute = rate_limit
         main_module.settings.cache_enabled = cache_enabled
         limiter.reset()
@@ -61,4 +63,5 @@ def make_client(tmp_path):
     app.dependency_overrides.clear()
     main_module.settings.api_key = ""
     main_module.settings.backend_api_key = ""
+    main_module.settings.backend_api_keys = set()
     main_module.settings.rate_limit_per_minute = 0

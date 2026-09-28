@@ -13,7 +13,6 @@
 
 import argparse
 import json
-import statistics as st
 import sys
 from pathlib import Path
 

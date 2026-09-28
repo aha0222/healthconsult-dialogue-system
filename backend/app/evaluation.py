@@ -12,6 +12,8 @@ predictor 是一个可调用对象：
 import json
 from collections import Counter
 
+from .dialogue.taxonomy import RISK_LEVELS
+
 
 def load_cases(path):
     cases = []
@@ -29,13 +31,17 @@ def evaluate_risk(predictor, cases):
     correct = 0
     mismatches = []
     confusion = Counter()
+    per_risk_total = Counter()
+    per_risk_correct = Counter()
 
     for case in cases:
         expected = case["expected_risk"]
         predicted = predictor(case["user"])
         confusion[(expected, predicted)] += 1
+        per_risk_total[expected] += 1
         if predicted == expected:
             correct += 1
+            per_risk_correct[expected] += 1
         else:
             mismatches.append(
                 {
@@ -46,6 +52,16 @@ def evaluate_risk(predictor, cases):
                 }
             )
 
+    per_risk = {}
+    for risk in RISK_LEVELS:
+        count = per_risk_total.get(risk, 0)
+        hits = per_risk_correct.get(risk, 0)
+        per_risk[risk] = {
+            "total": count,
+            "correct": hits,
+            "accuracy": (hits / count) if count else 0.0,
+        }
+
     return {
         "total": total,
         "correct": correct,
@@ -55,7 +71,35 @@ def evaluate_risk(predictor, cases):
             f"{expected}->{predicted}": count
             for (expected, predicted), count in sorted(confusion.items())
         },
+        "per_risk": per_risk,
     }
+
+
+def check_thresholds(metrics, min_accuracy=0.0, min_risk_accuracy=None):
+    """分层门禁：整体准确率 + 指定风险等级准确率。
+
+    min_risk_accuracy: {"R3": 0.9, "R2b": 0.9}，缺样本也会判为不达标。
+    返回不达标说明列表；空列表表示通过。
+    """
+    failures = []
+    if metrics.get("accuracy", 0.0) < min_accuracy:
+        failures.append(
+            f"整体准确率 {metrics.get('accuracy', 0.0):.2%} < {min_accuracy:.0%}"
+        )
+
+    per_risk = metrics.get("per_risk", {})
+    for risk, threshold in (min_risk_accuracy or {}).items():
+        stat = per_risk.get(risk) or {}
+        count = stat.get("total", 0)
+        if count == 0:
+            failures.append(f"高风险等级 {risk} 无评测样本")
+            continue
+        accuracy = stat.get("accuracy", 0.0)
+        if accuracy < threshold:
+            failures.append(
+                f"{risk} 准确率 {accuracy:.2%} < {threshold:.0%}（样本 {count}）"
+            )
+    return failures
 
 
 def evaluate_tags(predictor, cases):

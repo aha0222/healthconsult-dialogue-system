@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .alerts import send_alert
+from .alerts import sanitize_alert, send_alert
 from .cache import TTLCache, is_cacheable_request, is_cacheable_result
 from .config import get_settings
 from .dialogue.llm_client import LLMError
@@ -62,7 +62,7 @@ from .schemas import (
     TaxonomyResponse,
     UserRecord,
 )
-from .security import get_client_ip, rate_limit, require_api_key
+from .security import check_startup_security, get_client_ip, rate_limit, require_api_key
 from .storage import Database
 
 settings = get_settings()
@@ -74,8 +74,11 @@ chat_logger = logging.getLogger("xiaonuan.chat")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """启动时校验 skill 规范可定位，避免运行到首个请求才报错。"""
+    """启动时校验 skill 规范与安全配置，避免运行到首个请求才报错。"""
     validate_paths()
+    warnings = check_startup_security(settings)
+    for warning in warnings:
+        logging.getLogger("xiaonuan.security").warning("配置告警: %s", warning)
     yield
 
 
@@ -210,8 +213,8 @@ def _record_audit(db, session_id, request, result, latency_ms):
         "latency_ms": latency_ms,
     }
     db.add_audit(**record)
-    log_event(chat_logger, "chat_response", **record)
-    send_alert(record)
+    log_event(chat_logger, "chat_response", **sanitize_alert(record))
+    send_alert(record, background=True)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -223,8 +226,8 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         model=settings.model,
-        has_api_key=settings.has_api_key,
         auth_enabled=settings.auth_enabled,
+        config_warnings=list(settings.config_warnings),
     )
 
 

@@ -365,7 +365,7 @@ class DialogueOrchestrator:
         if (
             not fallback_used
             and self.semantic_checker is not None
-            and (risk or "").upper() in self.settings.semantic_check_risks
+            and canonical_risk(risk) in self.settings.semantic_check_risks
         ):
             try:
                 review = self.semantic_checker.check(message, reply, risk, scenes)

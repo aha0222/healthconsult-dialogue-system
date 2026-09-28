@@ -52,7 +52,6 @@ def main():
     args = ap.parse_args()
 
     targets = cc.flatten_targets(cc.load_targets(args.targets))
-    target_total = args.total or sum(targets.values())
 
     rows = []
     stats = Counter()
@@ -100,7 +99,6 @@ def main():
     print(f"\n  最终输出 {len(selected)} 条  →  {args.out}")
 
     # 分布对比
-    have = Counter(cc.cell_key(r) for r in selected)
     print(f"\n{'格子':<16}{'候选':>6}{'采用':>6}{'目标':>6}   偏差")
     print("-" * 52)
     worst = []

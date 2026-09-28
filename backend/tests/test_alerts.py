@@ -1,5 +1,7 @@
 """alerts.py 单元测试。"""
 
+import json
+import logging
 import sys
 from pathlib import Path
 
@@ -66,3 +68,50 @@ def test_send_alert_skips_low_risk(monkeypatch):
     monkeypatch.setattr(alerts.httpx, "post", fake_post)
     settings = Settings(alert_webhook_url="http://example.test/hook")
     assert alerts.send_alert(base_record(risk="R0"), settings) is False
+
+
+def test_send_alert_redacts_raw_text(monkeypatch):
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["json"] = json
+
+    monkeypatch.setattr(alerts.httpx, "post", fake_post)
+    settings = Settings(
+        alert_webhook_url="http://example.test/hook", alert_webhook_redact=True
+    )
+    record = base_record(user_message="我胸口疼得厉害", reply="请马上打120")
+    assert alerts.send_alert(record, settings) is True
+
+    body = json.dumps(captured["json"], ensure_ascii=False)
+    assert "我胸口疼得厉害" not in body
+    assert "请马上打120" not in body
+    assert captured["json"]["user_message_sha256"]
+    assert captured["json"]["user_message_len"] == len("我胸口疼得厉害")
+
+
+def test_send_alert_can_include_raw_when_redact_disabled(monkeypatch):
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["json"] = json
+
+    monkeypatch.setattr(alerts.httpx, "post", fake_post)
+    settings = Settings(
+        alert_webhook_url="http://example.test/hook", alert_webhook_redact=False
+    )
+    alerts.send_alert(base_record(user_message="我胸口疼"), settings)
+    assert captured["json"]["user_message"] == "我胸口疼"
+
+
+def test_alert_log_redacts_raw_text(caplog):
+    settings = Settings()
+    with caplog.at_level(logging.INFO, logger="xiaonuan.alert"):
+        alerts.send_alert(
+            base_record(user_message="我胸口疼", reply="请马上打120"), settings
+        )
+
+    fields = caplog.records[-1].fields
+    assert "user_message" not in fields
+    assert "reply" not in fields
+    assert fields["user_message_sha256"]

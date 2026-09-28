@@ -26,9 +26,28 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.app.dialogue.markers import infer_risk_local, infer_tags_local
-from backend.app.evaluation import evaluate_risk, evaluate_tags, load_cases
+from backend.app.evaluation import (
+    check_thresholds,
+    evaluate_risk,
+    evaluate_tags,
+    load_cases,
+)
 
 DEFAULT_CASES = REPO_ROOT / "backend" / "tests" / "eval" / "risk_cases.jsonl"
+# 默认重点关注的高风险等级（分层门禁）
+DEFAULT_RISK_THRESHOLDS = "R3:0.9,R2b:0.9"
+
+
+def parse_risk_thresholds(raw):
+    """解析 "R3:0.9,R2b:0.8" -> {"R3": 0.9, "R2b": 0.8}。"""
+    result = {}
+    for item in (raw or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        risk, _, value = item.partition(":")
+        result[risk.strip()] = float(value)
+    return result
 
 
 def local_predictor(text):
@@ -65,6 +84,12 @@ def main():
     parser.add_argument("--cases", default=str(DEFAULT_CASES), help="评测集 JSONL 路径")
     parser.add_argument("--mode", choices=["local", "llm"], default="local")
     parser.add_argument("--min-accuracy", type=float, default=0.0, help="低于该准确率则退出码 1")
+    parser.add_argument(
+        "--min-risk-accuracy",
+        default="",
+        help='按等级的最小准确率，如 "R3:0.9,R2b:0.9"（缺样本也判失败）',
+    )
+    parser.add_argument("--min-scene-f1", type=float, default=0.0, help="场景多标签 F1 下限")
     parser.add_argument("--api-key", help="LLM 模式的 API Key")
     parser.add_argument("--base-url", help="LLM 接口地址")
     parser.add_argument("--model", help="模型名")
@@ -84,10 +109,23 @@ def main():
     output = {"risk": metrics, "tags": tag_metrics}
     print(json.dumps(output, ensure_ascii=False, indent=2))
 
-    if metrics["accuracy"] < args.min_accuracy:
-        print(f"[FAIL] 准确率 {metrics['accuracy']:.2%} 低于阈值 {args.min_accuracy:.0%}")
+    risk_thresholds = parse_risk_thresholds(args.min_risk_accuracy)
+    failures = check_thresholds(
+        metrics, args.min_accuracy, risk_thresholds
+    )
+    if tag_metrics["scene_f1"] < args.min_scene_f1:
+        failures.append(
+            f"场景 F1 {tag_metrics['scene_f1']:.2%} < {args.min_scene_f1:.0%}"
+        )
+
+    if failures:
+        for failure in failures:
+            print(f"[FAIL] {failure}")
         raise SystemExit(1)
-    print(f"[PASS] 风险准确率 {metrics['accuracy']:.2%}；场景 F1 {tag_metrics['scene_f1']:.2%}")
+    print(
+        f"[PASS] 风险准确率 {metrics['accuracy']:.2%}；"
+        f"场景 F1 {tag_metrics['scene_f1']:.2%}"
+    )
 
 
 if __name__ == "__main__":

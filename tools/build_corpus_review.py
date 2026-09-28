@@ -42,7 +42,6 @@ from backend.app.safety.safety_checker import (  # noqa: E402
     ROLE_MISMATCH_MARKERS,
     check_reply,
     contains_placeholder,
-    detect_scenes,
     has_english_residual,
     has_internal_leak,
     has_marker_like_fragment,

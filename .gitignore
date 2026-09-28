@@ -11,6 +11,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.tmp_pytest_tmp/
+.coverage
+coverage.xml
+htmlcov/
 
 # 临时工作目录（虚拟环境/缓存，不应入库）
 新建文件夹/
@@ -34,11 +38,16 @@ backend/data/
 # 嵌入向量缓存（本地生成，不入库）
 .cache/
 
-# Generated data artifacts (keep committed examples, ignore future outputs)
+# Generated data artifacts (不提交；需要时在本地重跑生成脚本)
+# 注意：运行时检索用的 v0.3.0_corpus500.jsonl 与 CI 引用的
+# v0.2.3_health_safety_repair.jsonl 属于发布物，保留入库。
 skills/healthconsult-assistant-skill/examples/generated_candidates_*.jsonl
 skills/healthconsult-assistant-skill/examples/*_bad_cases.csv
-tests/results/batch_results_*.json
-tests/results/batch_report_*.md
+tests/results/batch_results*.json
+tests/results/batch_report*.md
+tests/results/personality_gen_*.jsonl
+tests/results/personality_scores_*.jsonl
+tests/results/personality_ranking_*.jsonl
 
 # 人格评测交付包原始副本（内容已归位到 tools/ docs/ tests/results/ examples/）
 人格评测/

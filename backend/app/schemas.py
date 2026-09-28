@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     )
     user_profile: Optional[str] = Field(
         default=None,
+        max_length=_settings.max_profile_chars,
         description="用户自述的陪护信息（前端采集，未经核实，仅用于个性化陪伴）",
     )
 
@@ -71,8 +72,8 @@ class PersonalityInfo(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model: str
-    has_api_key: bool
     auth_enabled: bool = False
+    config_warnings: List[str] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -136,15 +137,15 @@ class ProfileRequest(BaseModel):
     """欢迎流程采集的非隐私资料（与前端字段一一对应）。"""
 
     user_id: Optional[str] = Field(default=None, description="已有用户 id；缺省则新建")
-    name: str = ""
-    age: str = ""
-    living: str = ""
-    conditions: str = ""
-    medications: str = ""
-    allergies: str = ""
-    healthConcerns: str = ""
-    mobility: str = ""
-    emergencyContact: str = ""
+    name: str = Field(default="", max_length=_settings.max_profile_chars)
+    age: str = Field(default="", max_length=_settings.max_profile_chars)
+    living: str = Field(default="", max_length=_settings.max_profile_chars)
+    conditions: str = Field(default="", max_length=_settings.max_profile_chars)
+    medications: str = Field(default="", max_length=_settings.max_profile_chars)
+    allergies: str = Field(default="", max_length=_settings.max_profile_chars)
+    healthConcerns: str = Field(default="", max_length=_settings.max_profile_chars)
+    mobility: str = Field(default="", max_length=_settings.max_profile_chars)
+    emergencyContact: str = Field(default="", max_length=_settings.max_profile_chars)
 
 
 class UserRecord(BaseModel):

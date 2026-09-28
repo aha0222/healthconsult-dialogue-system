@@ -60,7 +60,6 @@ except ImportError:
     pass
 
 from backend.app.dialogue.taxonomy import (  # noqa: E402
-    extract_tags,
     format_tags,
     strip_tags,
 )

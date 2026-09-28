@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".venv",
+    ".cache",
+    ".tmp_pytest_tmp",
+    "skills",
+    "frontend",
+    "tests/results",
+]
+
+[tool.ruff.lint]
+# 聚焦"会掩盖真实缺陷"的规则：未定义名/死导入/未使用变量/重复定义。
+# 现有代码已全部通过；新增回归会被 CI 拦下。
+select = ["E9", "F63", "F7", "F82", "F401", "F811", "F841"]
+
+[tool.coverage.run]
+source = ["backend/app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
