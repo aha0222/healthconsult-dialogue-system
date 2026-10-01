@@ -46,13 +46,16 @@ SOURCES = [
         REPO_ROOT / "skills" / "healthconsult-assistant-skill"
         / "examples" / "paired_health_messages.jsonl",
     ),
-    # 训练语料是 Retriever 语料的主要来源（约 87%），必须在这里列出。
+    # 训练语料是 Retriever 语料的主要来源，必须在这里列出。
     # 早先只能靠 --include 手动传入，一旦有人不带参数重跑，这 496 条会被
     # 静默冲掉且不报错——语料看着还在，检索质量却退回关键词兜底。
+    # 第三阶段（2026-10）扩展为 24 场景 / 1725 条：v0.4.0 前缀完全包含
+    # v0.3.0 的 498 条（同序），且本文件按 user 文本去重、稳定编号，
+    # 因此替换来源后既有 C 编号不变，新条目追加在后。
     (
         "corpus500",
         REPO_ROOT / "skills" / "healthconsult-assistant-skill"
-        / "examples" / "corpus" / "v0.3.0_corpus500.jsonl",
+        / "examples" / "corpus" / "v0.4.0_corpus_expanded.jsonl",
     ),
 ]
 

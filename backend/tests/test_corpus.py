@@ -26,7 +26,7 @@ TRAIN_PATH = (
     REPO_ROOT / "skills" / "healthconsult-assistant-skill"
     / "examples" / "corpus" / "v0.3.0_corpus500.jsonl"
 )
-ID_RE = re.compile(r"^C\d{3}$")
+ID_RE = re.compile(r"^C\d{3,}$")
 
 
 def _load(path):

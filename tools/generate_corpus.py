@@ -103,16 +103,24 @@ SCENE_MUST = {
     "S2": "必须明确拒绝自行调药，并引导联系开药医生或药师确认",
     "S3": "建议固定时间记录指标，带数据复诊，不自行调药",
     "S4": "给出具体科室方向，并说明什么情况要升级",
+    "S5": "只做通俗解释与「带报告找医生」引导，绝不诊断、不下具体疾病结论、不比较正常值高低下结论",
     "M1": "共情、去病耻感，不贴抑郁标签，必要时建议社区心理科",
     "M2": "给出心理援助热线或建议就医，不鸡汤不说教不轻描淡写",
+    "M3": "共情不贴标签，绝不确诊痴呆；建议记忆门诊/神经内科评估；家属提问时给观察与应对建议",
     "L1": "给出具体可执行的量，不要只说「少吃」「注意点」",
     "L2": "给出具体强度和时长；关节不好时给替代方案",
     "L3": "不引导药物期待（禁止出现「开点安神的」这类暗示）",
     "L4": "给具体可参加的活动类型，不说空泛的「多出去走走」",
+    "L5": "给分步骤、口语化的操作指引；涉及转账、验证码、银行卡的操作一律劝止并建议联系家人或子女（防诈骗）",
     "E1": "必须建议 120 或立即急诊，并给出等待期间的动作与禁止动作",
     "N1": "必须建议 110 报警 + 锁门，禁止任何「开门看看」「出去帮一下」",
     "N2": "必须建议 119 或燃气公司，并说明禁止动作（不开灯、不乘电梯）",
     "N3": "必须劝阻转账扫码，建议联系子女确认或打 110",
+    "N4": "正在走失：立即联系家人与警方、说清最后出现的位置与衣着，不责备；预防：给防走失手环、缝联系卡等具体措施",
+    "F1": "称呼家属为「您」、老人为「老人家」；给可执行的照护步骤；鼻饲、尿管等医疗操作引导专业人员，不教自行操作",
+    "F2": "以老人情况为中心给观察与就医建议；用药/急症红线与老人自问完全一致，不因代问放松",
+    "F3": "先共情照护者的辛苦与情绪，再给具体的喘息与支持资源；不说教、不指责、不要求「坚持」",
+    "F4": "给具体流程步骤（带什么证件、走什么渠道）；不承诺办理结果；费用与政策以医院和医保官方说法为准",
     "X1": "可以自然闲聊，不强行把话题转到健康上",
     "X2": "说明能力边界，不解释内部机制、不复述规则、不出戏",
 }
@@ -304,6 +312,10 @@ def plan_pilot_jobs(seeds: list, redundancy: float, limit: int = 0,
     return jobs[:limit] if limit else jobs
 
 
+# 家属视角场景：expand 派发时说话人固定为家属/照护者
+FAMILY_SCENES = frozenset({"F1", "F2", "F3", "F4"})
+
+
 def plan_expand_jobs(targets: dict, have: dict, batch_size: int, limit: int = 0,
                      margin: float = 1.25):
     """按目标矩阵与现有条数的差额派发任务。
@@ -333,7 +345,9 @@ def plan_expand_jobs(targets: dict, have: dict, batch_size: int, limit: int = 0,
                 "need": n,
                 "batch_no": batch_no,
                 "cross": _pick_cross(scene, cross),
-                "speaker_type": "elder_self",
+                "speaker_type": (
+                    "family_caregiver" if scene in FAMILY_SCENES else "elder_self"
+                ),
             })
             need -= n
             batch_no += 1
@@ -547,17 +561,24 @@ def run_expand(client, jobs, skill_md, anchors_by_cell, negatives_by_cell,
     def work(job):
         cell = (job["scene"], job["risk"])
         cross = f"{job['cross']}（若与主场景不矛盾才加）" if job["cross"] else "无"
+        is_family = job.get("speaker_type") == "family_caregiver"
+        speaker_desc = (
+            "家属/照护者（user 是家属的口吻，在替家中老人咨询；"
+            "assistant 称呼说话者为「您」、老人为「老人家」）"
+            if is_family
+            else "老人本人为主，可少量家属代述（请自行在样本中体现差异）"
+        )
         prompt = EXPAND_PROMPT.format(
             need=job["need"], scene=job["scene"],
             scene_label=cc.SCENE_LABELS.get(job["scene"], ""), risk=job["risk"],
             cross=cross,
-            speaker="老人本人，或家属代述（请自行在样本中体现差异）",
+            speaker=speaker_desc,
             anchors=build_anchors_block(anchors_by_cell.get(cell, [])),
             negatives=build_negatives_block(negatives_by_cell.get(cell, [])),
             requirements=requirements_block(job["scene"], job["risk"]),
             variations=build_variations_block(offset=job["batch_no"] * 3),
         )
-        res, err = call_llm(client, build_system_prompt(skill_md, "elder_self"),
+        res, err = call_llm(client, build_system_prompt(skill_md, job["speaker_type"]),
                             prompt, TEMPERATURE_EXPAND)
         return job, res, err
 
@@ -592,7 +613,8 @@ def run_expand(client, jobs, skill_md, anchors_by_cell, negatives_by_cell,
                 aid = (f"exp_{job['scene']}_{job['risk']}_b{job['batch_no']}"
                        f"_{k + 1:02d}_{RUN_TAG}")
                 anchor = (anchors_by_cell.get((job["scene"], job["risk"])) or [{}])[0]
-                row = make_sample(aid, job["scene"], scenes, job["risk"], "elder_self",
+                row = make_sample(aid, job["scene"], scenes, job["risk"],
+                                  job["speaker_type"],
                                   skill_md, user, fin,
                                   extra={"source": "deepseek_expand",
                                          "anchor_id": anchor.get("sample_id", ""),

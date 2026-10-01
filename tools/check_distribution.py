@@ -158,8 +158,17 @@ def main():
         problems.append(f"有 {len(safety_bad)} 条未通过安全检查")
     if st_["scene_coverage"] < len(cc.SCENES):
         problems.append(f"场景覆盖 {st_['scene_coverage']}/{len(cc.SCENES)}，有遗漏")
-    if not (1.15 <= st_["avg_scenes"] <= 1.35):
-        problems.append(f"平均标签数 {st_['avg_scenes']} 偏离目标区间 1.15-1.35")
+    # 平均标签数阈值：目标值来自 targets 的 _目标平均标签数。expand 阶段交叉
+    # 标签按「批」派发（同批样本共享同一交叉标签），实际均值天然高于逐条预算，
+    # 因此容差取 ±0.25 而不是硬编码 1.15-1.35（v1 时代未考虑批级派发）。
+    avg_target = float(
+        (cc.load_targets(args.targets).get("cross_tags") or {}).get("_目标平均标签数", 1.28)
+    )
+    if not (avg_target - 0.25 <= st_["avg_scenes"] <= avg_target + 0.25):
+        problems.append(
+            f"平均标签数 {st_['avg_scenes']} 偏离目标区间 "
+            f"{avg_target - 0.25:.2f}-{avg_target + 0.25:.2f}"
+        )
 
     report["pass"] = not problems
     report["problems"] = problems
@@ -189,7 +198,7 @@ def main():
         print(f"  安全问题     {k['safety_issues']}")
         print(f"  场景覆盖     {k['scene_coverage']}/{len(cc.SCENES)}")
         print(f"  风险覆盖     {k['risk_coverage']}/{len(cc.RISK_LEVELS)}")
-        print(f"  平均标签数   {k['avg_scenes']}（目标 1.15-1.35）")
+        print(f"  平均标签数   {k['avg_scenes']}（目标 {avg_target - 0.25:.2f}-{avg_target + 0.25:.2f}）")
 
         print("\n" + "=" * 72)
         if problems:
