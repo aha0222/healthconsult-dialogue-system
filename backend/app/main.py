@@ -227,6 +227,8 @@ def health() -> HealthResponse:
         status="ok",
         model=settings.model,
         auth_enabled=settings.auth_enabled,
+        voice_enabled=settings.voice_enabled,
+        speaker_detect_enabled=settings.speaker_detect_enabled,
         config_warnings=list(settings.config_warnings),
     )
 
@@ -296,6 +298,7 @@ def chat(
             personality=request.personality,
             history=history,
             memory_block=memory_block,
+            speaker_role=request.speaker_role,
         )
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -339,6 +342,7 @@ def chat_stream(
                 personality=request.personality,
                 history=history,
                 memory_block=memory_block,
+                speaker_role=request.speaker_role,
             ):
                 if kind == "delta":
                     yield _sse("delta", {"text": payload})

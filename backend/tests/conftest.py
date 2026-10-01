@@ -46,11 +46,17 @@ def make_client(tmp_path):
         backend_api_keys=None,
         rate_limit=0,
         cache_enabled=False,
+        settings=None,
     ):
-        orch = DialogueOrchestrator(llm=FakeLLM(reply, error), settings=Settings())
+        orch = DialogueOrchestrator(
+            llm=FakeLLM(reply, error), settings=settings or Settings()
+        )
         db = Database(tmp_path / "test.db")
         app.dependency_overrides[get_orchestrator] = lambda: orch
         app.dependency_overrides[get_db] = lambda: db
+        if settings is not None:
+            main_module.settings.voice_enabled = settings.voice_enabled
+            main_module.settings.speaker_detect_enabled = settings.speaker_detect_enabled
         main_module.settings.api_key = api_key
         main_module.settings.backend_api_key = backend_api_key
         main_module.settings.backend_api_keys = set(backend_api_keys or ())
@@ -65,3 +71,6 @@ def make_client(tmp_path):
     main_module.settings.backend_api_key = ""
     main_module.settings.backend_api_keys = set()
     main_module.settings.rate_limit_per_minute = 0
+    main_module.settings.cache_enabled = False
+    main_module.settings.voice_enabled = False
+    main_module.settings.speaker_detect_enabled = False

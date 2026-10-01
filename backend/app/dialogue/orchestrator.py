@@ -35,6 +35,7 @@ from .prompt import (
 from .reranker import rerank
 from .retriever import Retriever, build_embedder, load_corpus
 from .routing import select_model
+from .speaker import SPEAKER_ELDER, SPEAKER_FAMILY, detect_speaker_role, role_hint
 from .taxonomy import HIGH_RISKS, SCENE_LABELS, canonical_risk, max_risk, normalize_scenes
 
 logger = logging.getLogger("xiaonuan.dialogue")
@@ -88,6 +89,12 @@ SCENE_FALLBACKS = {
     "M1": (
         "听您这么说，我心里也沉甸甸的。这些情绪不是您的错，也不丢人。"
         "咱们可以先去社区心理科聊聊，我陪您把想说的话一起记下来。"
+    ),
+    "N4": (
+        "咱们现在就行动，别再等了：马上打 110 报警，"
+        "说清楚老人的年龄、穿的什么衣服、最后在哪儿见的、有没有记性不好的毛病。"
+        "同时让家里人分头去老人常去的地方找——小区门口、公园、菜市场都问一圈。"
+        "天黑变天老人在外头容易出事，报警不丢人，越早越好。找到人后别埋怨他。"
     ),
 }
 
@@ -155,6 +162,30 @@ class DialogueOrchestrator:
             logger.warning("运行时分级失败，已跳过: %s", exc)
             return None
 
+    def _resolve_speaker_role(self, message: str, history, speaker_role: str | None) -> str:
+        """说话人角色：开关关闭＝恒按老人（现状，零回归）。
+
+        开关开启时：客户端显式声明 family 优先（语音侧/界面已识别的场景），
+        其余（elder/unknown/未传/非法值）走启发式识别（低置信回退 elder）。
+        角色只影响称呼与内容侧重，不参与风险判定，安全红线与说话人无关。
+        """
+        if not self.settings.speaker_detect_enabled:
+            return SPEAKER_ELDER
+        if speaker_role == SPEAKER_FAMILY:
+            return SPEAKER_FAMILY
+        history_texts = [
+            item.get("content")
+            for item in (history or [])
+            if isinstance(item, dict)
+            and item.get("role") == "user"
+            and item.get("content")
+        ]
+        try:
+            return detect_speaker_role(message, history_texts)
+        except Exception as exc:  # 识别失败不阻断对话，维持现状
+            logger.warning("说话人识别失败，按老人处理: %s", exc)
+            return SPEAKER_ELDER
+
     def _get_exemplar_retriever(self):
         """惰性构建带回复的检索语料；不可用时返回 None。"""
         if self._exemplar_retriever is None:
@@ -192,7 +223,9 @@ class DialogueOrchestrator:
             return []
         return [item for item, _ in ranked if getattr(item, "assistant", "")]
 
-    def _compose_system_prompt(self, message: str, personality: str, classification) -> str:
+    def _compose_system_prompt(
+        self, message: str, personality: str, classification, speaker_block: str = ""
+    ) -> str:
         """按预判结果决定 prompt 形态：高风险完整、典型低风险精简、并注入样例。"""
         risk = classification.risk if classification else None
         is_high = bool(classification and classification.ambiguous) or (
@@ -209,7 +242,10 @@ class DialogueOrchestrator:
         )
         examples_block = build_examples_block(examples) if examples else ""
         return build_system_prompt(
-            personality, compact=compact, examples_block=examples_block
+            personality,
+            compact=compact,
+            examples_block=examples_block,
+            speaker_block=speaker_block,
         )
 
     def _build_messages(
@@ -240,11 +276,15 @@ class DialogueOrchestrator:
         personality: str = DEFAULT_PERSONALITY,
         history=None,
         memory_block=None,
+        speaker_role: str | None = None,
     ) -> dict:
         """处理一条用户消息，返回结构化结果。"""
         personality = normalize_personality(personality)
+        role = self._resolve_speaker_role(message, history, speaker_role)
         classification = self._runtime_classification(message)
-        system_prompt = self._compose_system_prompt(message, personality, classification)
+        system_prompt = self._compose_system_prompt(
+            message, personality, classification, speaker_block=role_hint(role)
+        )
         messages = self._build_messages(
             message, personality, history, memory_block, system_prompt
         )
@@ -254,9 +294,11 @@ class DialogueOrchestrator:
             risk=(classification.risk if classification else None),
         )
         raw_reply = self.llm.chat(messages, model=model)
-        return self._finalize(
+        result = self._finalize(
             raw_reply, message, personality, model, pre_classification=classification
         )
+        result["speaker_role"] = role
+        return result
 
     def respond_stream(
         self,
@@ -264,6 +306,7 @@ class DialogueOrchestrator:
         personality: str = DEFAULT_PERSONALITY,
         history=None,
         memory_block=None,
+        speaker_role: str | None = None,
     ):
         """流式处理：逐段 yield ("delta", 文本)，最后 yield ("done", 结果字典)。
 
@@ -277,8 +320,11 @@ class DialogueOrchestrator:
           `STREAM_CHUNK_CHARS` 切片成 delta，但内容不会再被撤回。
         """
         personality = normalize_personality(personality)
+        role = self._resolve_speaker_role(message, history, speaker_role)
         classification = self._runtime_classification(message)
-        system_prompt = self._compose_system_prompt(message, personality, classification)
+        system_prompt = self._compose_system_prompt(
+            message, personality, classification, speaker_block=role_hint(role)
+        )
         messages = self._build_messages(
             message, personality, history, memory_block, system_prompt
         )
@@ -294,6 +340,7 @@ class DialogueOrchestrator:
         result = self._finalize(
             buffer, message, personality, model, pre_classification=classification
         )
+        result["speaker_role"] = role
 
         # 高风险输入：整段一次性下发，全程无中间态，杜绝逐字泄露。
         if pre_risk in HIGH_RISK_STREAM or cls_risk in HIGH_RISK_STREAM:

@@ -26,11 +26,12 @@
   };
 
   var SCENE_LABEL_MAP = {
-    S1: "症状咨询", S2: "用药管理", S3: "慢病管理", S4: "就医引导",
-    M1: "情绪陪伴", M2: "心理危机",
-    L1: "饮食营养", L2: "运动康复", L3: "作息睡眠", L4: "社交活动",
+    S1: "症状咨询", S2: "用药管理", S3: "慢病管理", S4: "就医引导", S5: "检查报告解读",
+    M1: "情绪陪伴", M2: "心理危机", M3: "认知障碍关怀",
+    L1: "饮食营养", L2: "运动康复", L3: "作息睡眠", L4: "社交活动", L5: "智能设备使用",
     E1: "急症识别",
-    N1: "人身安全", N2: "环境安全", N3: "诈骗财产",
+    N1: "人身安全", N2: "环境安全", N3: "诈骗财产", N4: "走失防范",
+    F1: "家属照护指导", F2: "家属代询病情", F3: "照护者关怀", F4: "就医协助",
     X1: "闲聊", X2: "系统功能",
   };
 
@@ -259,6 +260,21 @@
     loadSettings();
     bindEvents();
     updateStatus();
+    initVoiceCapability();
+  }
+
+  /* 第三阶段接线：后端 VOICE_ENABLED=1 时才探活 voice_service；
+     探活失败/未实现（501）时保持浏览器语音或打字版，行为不变。 */
+  function initVoiceCapability() {
+    if (!window.XiaonuanVoice) return;
+    var base = backendBase();
+    if (!base) return;
+    fetchJson(base + "/api/health")
+      .then(function (health) {
+        if (health.voice_enabled) return XiaonuanVoice.probe();
+        return { asr: false, tts: false };
+      })
+      .catch(function () { /* 后端未起时不影响页面 */ });
   }
 
   function loadSettings() {
@@ -684,6 +700,18 @@
   }
 
   function speak(text) {
+    /* 第三阶段接线：后端 VOICE_ENABLED=1 且 voice_service TTS 就绪时走本地语音服务，
+       不可用/失败时自动回退浏览器合成，打字版行为不受影响。 */
+    if (window.XiaonuanVoice && XiaonuanVoice.canSpeak()) {
+      XiaonuanVoice.speak(text).then(function (ok) {
+        if (!ok) speakWithBrowser(text);
+      });
+      return;
+    }
+    speakWithBrowser(text);
+  }
+
+  function speakWithBrowser(text) {
     if (!window.SpeechSynthesisUtterance || !synth) {
       showSystemMsg("当前浏览器不支持语音播报");
       return;
@@ -737,6 +765,12 @@
   }
 
   function toggleVoiceInput() {
+    /* 第三阶段接线：voice_service ASR 就绪时优先走本地语音服务（离线可用），
+       否则维持浏览器识别；两者都不可用才提示打字。 */
+    if (window.XiaonuanVoice && XiaonuanVoice.canListen()) {
+      toggleServiceVoiceInput();
+      return;
+    }
     if (!recognition) {
       showSystemMsg("您的浏览器不支持语音识别", true);
       return;
@@ -756,6 +790,40 @@
       showSystemMsg("正在听，请说话…");
       announce("正在听，请说话");
     }
+  }
+
+  function toggleServiceVoiceInput() {
+    if (isListening) {
+      isListening = false;
+      XiaonuanVoice.stopListening();
+      stopListening();
+      return;
+    }
+    inputEl.value = "";
+    inputEl.dataset.finalText = "";
+    autoResize(inputEl);
+    isListening = true;
+    micBtn.classList.add("is-listening");
+    micBtn.setAttribute("aria-pressed", "true");
+    showSystemMsg("正在听，请说话…");
+    announce("正在听，请说话");
+    XiaonuanVoice.startListening({
+      onFinal: function (text) {
+        stopListening();
+        if (text) {
+          inputEl.value = text;
+          inputEl.dataset.finalText = text;
+          autoResize(inputEl);
+          announce("识别完成，请确认后发送");
+        } else {
+          showSystemMsg("没听清，请再试一次", true);
+        }
+      },
+      onError: function () {
+        stopListening();
+        showSystemMsg("语音识别出错，请检查麦克风权限", true);
+      },
+    });
   }
 
   function stopListening() {

@@ -241,3 +241,71 @@ def test_respond_stream_stops_at_internal_leak():
     result = events[-1][1]
     assert result["fallback_used"] is True
     assert result["reply"] == LEAK_DEFLECTION
+
+
+# ── 说话人角色（SPEAKER_DETECT_ENABLED 接线）─────────────────────────
+
+
+def _orch_with_flag(reply, enabled):
+    return DialogueOrchestrator(
+        llm=FakeLLM(reply), settings=Settings(speaker_detect_enabled=enabled)
+    )
+
+
+def test_speaker_disabled_keeps_current_behavior():
+    """开关默认关闭：家属消息也不注入家属性提示，结果恒为 elder（零回归）。"""
+    orch = _orch_with_flag("您可以多陪伴老人。[RISK:R1]\n[SCENE:S1]", enabled=False)
+    result = orch.respond("我爸血压高，该怎么照顾他")
+    assert result["speaker_role"] == "elder"
+    system_prompt = orch.llm.last_messages[0]["content"]
+    assert "【当前说话人：家属/照护者】" not in system_prompt
+
+
+def test_speaker_enabled_detects_family_and_injects_hint():
+    orch = _orch_with_flag("您可以多陪伴老人。[RISK:R1]\n[SCENE:S1]", enabled=True)
+    result = orch.respond("我爸血压高，该怎么照顾他")
+    assert result["speaker_role"] == "family"
+    system_prompt = orch.llm.last_messages[0]["content"]
+    assert "家属/照护者" in system_prompt
+    assert "安全红线" in system_prompt
+
+
+def test_speaker_enabled_elder_message_stays_elder():
+    orch = _orch_with_flag("您按时吃药。[RISK:R1]\n[SCENE:S1]", enabled=True)
+    result = orch.respond("我这两天头晕得厉害")
+    assert result["speaker_role"] == "elder"
+    assert "【当前说话人：家属/照护者】" not in orch.llm.last_messages[0]["content"]
+
+
+def test_speaker_explicit_family_role_wins():
+    """客户端显式声明 family 时优先于启发式（elder 自述消息也尊重声明）。"""
+    orch = _orch_with_flag("您可以多陪伴老人。[RISK:R1]\n[SCENE:S1]", enabled=True)
+    result = orch.respond("我这两天头晕得厉害", speaker_role="family")
+    assert result["speaker_role"] == "family"
+    assert "家属/照护者" in orch.llm.last_messages[0]["content"]
+
+
+def test_speaker_role_never_loosens_safety():
+    """安全不变式：家属角色下命中红线同样兜底，话术与老人角色一致。"""
+    orch_family = _orch_with_flag("药量你自己调。[RISK:R2a]\n[SCENE:S2]", enabled=True)
+    orch_elder = _orch_with_flag("药量你自己调。[RISK:R2a]\n[SCENE:S2]", enabled=True)
+    family_result = orch_family.respond("我爸血压高，能自己加药吗")
+    elder_result = orch_elder.respond("我血压高，能自己加药吗")
+    assert family_result["fallback_used"] is True
+    assert elder_result["fallback_used"] is True
+    assert family_result["reply"] == elder_result["reply"]
+    assert family_result["risk"] == elder_result["risk"]
+
+
+def test_speaker_stream_result_carries_role():
+    orch = _orch_with_flag("您可以多陪伴老人。[RISK:R1]\n[SCENE:S1]", enabled=True)
+    events = list(orch.respond_stream("我爸血压高，该怎么照顾他"))
+    assert events[-1][1]["speaker_role"] == "family"
+
+
+def test_speaker_history_used_for_continuation():
+    """带 session 历史时，识别可参考此前用户消息（指代延续判家属）。"""
+    orch = _orch_with_flag("您多留意老人状态。[RISK:R1]\n[SCENE:S1]", enabled=True)
+    history = [{"role": "user", "content": "我爸今年80了"}]
+    result = orch.respond("他最近总忘事怎么办", history=history)
+    assert result["speaker_role"] == "family"

@@ -43,7 +43,7 @@ class SpyOrchestrator:
     def __init__(self):
         self.memory_blocks = []
 
-    def respond(self, message, personality, history, memory_block=None):
+    def respond(self, message, personality, history, memory_block=None, speaker_role=None):
         self.memory_blocks.append(memory_block)
         return {
             "reply": "好的。",
@@ -54,6 +54,7 @@ class SpyOrchestrator:
             "semantic_checked": False,
             "personality": personality,
             "model": "test",
+            "speaker_role": speaker_role or "elder",
         }
 
 
@@ -72,11 +73,17 @@ def make_client(tmp_path):
         backend_api_keys=None,
         rate_limit=0,
         cache_enabled=False,
+        settings=None,
     ):
-        orch = DialogueOrchestrator(llm=FakeLLM(reply, error), settings=Settings())
+        orch = DialogueOrchestrator(
+            llm=FakeLLM(reply, error), settings=settings or Settings()
+        )
         db = Database(tmp_path / "test.db")
         app.dependency_overrides[get_orchestrator] = lambda: orch
         app.dependency_overrides[get_db] = lambda: db
+        if settings is not None:
+            main_module.settings.voice_enabled = settings.voice_enabled
+            main_module.settings.speaker_detect_enabled = settings.speaker_detect_enabled
         main_module.settings.api_key = api_key
         main_module.settings.backend_api_key = backend_api_key
         main_module.settings.backend_api_keys = set(backend_api_keys or ())
@@ -92,6 +99,8 @@ def make_client(tmp_path):
     main_module.settings.backend_api_keys = set()
     main_module.settings.rate_limit_per_minute = 0
     main_module.settings.cache_enabled = False
+    main_module.settings.voice_enabled = False
+    main_module.settings.speaker_detect_enabled = False
     limiter.reset()
 
 
@@ -621,3 +630,59 @@ def test_conversation_summary_surfaced_in_api(make_client):
     detail = client.get(f"/api/sessions/{chat['session_id']}").json()
     assert detail["conversation_summary"] == "老人提到儿子。"
     assert client.get(f"/api/users/{user_id}").json()["conversation_summary"] == "老人提到儿子。"
+
+
+# ── 第三阶段能力开关接线（默认关＝零回归）─────────────────────────────
+
+
+def test_health_exposes_capability_flags(make_client):
+    client = make_client(reply="x")
+    body = client.get("/api/health").json()
+    assert body["voice_enabled"] is False
+    assert body["speaker_detect_enabled"] is False
+
+    enabled = Settings(voice_enabled=True, speaker_detect_enabled=True)
+    client = make_client(reply="x", settings=enabled)
+    body = client.get("/api/health").json()
+    assert body["voice_enabled"] is True
+    assert body["speaker_detect_enabled"] is True
+
+
+def test_chat_speaker_role_defaults_to_elder_when_disabled(make_client):
+    """开关关闭：即使请求声明 family，行为与现状完全一致。"""
+    client = make_client(reply="好的。[RISK:R0]")
+    body = client.post(
+        "/api/chat", json={"message": "我爸血压高", "speaker_role": "family"}
+    ).json()
+    assert body["speaker_role"] == "elder"
+
+
+def test_chat_speaker_role_honored_when_enabled(make_client):
+    settings = Settings(speaker_detect_enabled=True)
+    client = make_client(reply="您可以多陪伴老人。[RISK:R1]", settings=settings)
+    body = client.post(
+        "/api/chat", json={"message": "我爸血压高", "speaker_role": "family"}
+    ).json()
+    assert body["speaker_role"] == "family"
+
+    # 未声明时由后端启发式识别：家属消息也判为 family
+    body = client.post("/api/chat", json={"message": "我妈总忘事怎么办"}).json()
+    assert body["speaker_role"] == "family"
+
+    # 老人自述仍判 elder
+    body = client.post("/api/chat", json={"message": "我这两天头晕"}).json()
+    assert body["speaker_role"] == "elder"
+
+
+def test_chat_stream_accepts_speaker_role(make_client):
+    settings = Settings(speaker_detect_enabled=True)
+    client = make_client(
+        reply="您多留意老人状态。[RISK:R1]", settings=settings, api_key="test-key"
+    )
+    resp = client.post(
+        "/api/chat/stream", json={"message": "我爸血压高", "speaker_role": "family"}
+    )
+    assert resp.status_code == 200
+    done_line = [ln for ln in resp.text.splitlines() if ln.startswith("data: ")][-1]
+    done = json.loads(done_line[len("data: "):])
+    assert done["speaker_role"] == "family"

@@ -120,11 +120,21 @@ def build_system_prompt(
     personality: str = DEFAULT_PERSONALITY,
     compact: bool = False,
     examples_block: str = "",
+    speaker_block: str = "",
 ) -> str:
-    """组装 system prompt =（完整/精简）SKILL.md + 人格覆盖 + 可选相似样例。"""
+    """组装 system prompt =（完整/精简）SKILL.md + 人格覆盖 + 说话人提示 + 可选相似样例。
+
+    speaker_block 来自 dialogue/speaker.role_hint（开关开启且判为家属时非空），
+    只调整称呼与内容侧重，不改变任何安全约束。
+    """
     personality = normalize_personality(personality)
     base = load_compact_prompt() if compact else load_skill_prompt()
-    return base + PERSONALITY_OVERLAYS[personality] + (examples_block or "")
+    return (
+        base
+        + PERSONALITY_OVERLAYS[personality]
+        + (speaker_block or "")
+        + (examples_block or "")
+    )
 
 
 def risk_label(risk: str) -> str:

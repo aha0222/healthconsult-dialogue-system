@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
         max_length=_settings.max_profile_chars,
         description="用户自述的陪护信息（前端采集，未经核实，仅用于个性化陪伴）",
     )
+    speaker_role: Optional[str] = Field(
+        default=None,
+        description="说话人角色 elder/family（缺省由后端按 SPEAKER_DETECT_ENABLED 识别）",
+    )
 
     @field_validator("message")
     @classmethod
@@ -60,6 +64,7 @@ class ChatResponse(BaseModel):
     cached: bool = False
     personality: str
     model: str
+    speaker_role: str = "elder"
     session_id: Optional[str] = None
 
 
@@ -73,6 +78,8 @@ class HealthResponse(BaseModel):
     status: str
     model: str
     auth_enabled: bool = False
+    voice_enabled: bool = False
+    speaker_detect_enabled: bool = False
     config_warnings: List[str] = Field(default_factory=list)
 
 
