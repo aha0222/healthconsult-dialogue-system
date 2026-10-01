@@ -43,7 +43,7 @@
     RUNTIME_CLASSIFIER    运行时是否用分类器预判 risk/scenes（默认开启）
     RUNTIME_RETRIEVAL     运行时是否检索相似语料注入生成 prompt（默认开启）
     PROMPT_COMPACT        典型低风险是否用精简 prompt（默认开启，减少 token）
-    EXEMPLAR_CORPUS_PATH  运行时检索用的带回复语料，默认 skills/.../examples/corpus/v0.3.0_corpus500.jsonl
+    EXEMPLAR_CORPUS_PATH  运行时检索用的带回复语料，默认 skills/.../corpus/v0.4.0_corpus_expanded.jsonl（1725 条 / 24 场景）
     EXEMPLAR_EMBEDDING_BACKEND 运行时检索的嵌入后端，默认 hash（零下载、可移植；可设 local/api）
     VOICE_ENABLED         是否启用语音能力（独立 voice_service），默认关闭
     OFFLINE_MODE          是否用本地/私有端点 LLM 替代云端，默认关闭（走云端）
@@ -75,7 +75,7 @@ DEFAULT_CORPUS_PATH = (
 DEFAULT_EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "embeddings"
 DEFAULT_EXEMPLAR_CORPUS_PATH = (
     REPO_ROOT / "skills" / "healthconsult-assistant-skill"
-    / "examples" / "corpus" / "v0.3.0_corpus500.jsonl"
+    / "examples" / "corpus" / "v0.4.0_corpus_expanded.jsonl"
 )
 
 

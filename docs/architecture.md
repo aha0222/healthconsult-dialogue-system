@@ -97,7 +97,9 @@ system prompt 的「【已知信息】」块。
 每条回复末尾必须携带**双维度标签**：恰好一个风险等级 + 一个或多个场景类别。
 
 - 风险等级（唯一）：`[RISK:R3]` / `[RISK:R2b]` / `[RISK:R2a]` / `[RISK:R1]` / `[RISK:R0]`
-- 场景类别（可交叉，最多 3 个）：`[SCENE:S1-S4]` / `[SCENE:M1-M2]` / `[SCENE:L1-L4]` / `[SCENE:E1]` / `[SCENE:N1-N3]` / `[SCENE:X1-X2]`
+- 场景类别（可交叉，最多 3 个）：`[SCENE:S1-S5]` / `[SCENE:M1-M3]` / `[SCENE:L1-L5]` / `[SCENE:E1]` / `[SCENE:N1-N4]` / `[SCENE:F1-F4]` / `[SCENE:X1-X2]`
+
+  维度二 · 场景类别（可交叉，1~3 个）：S1-S5 / M1-M3 / L1-L5 / E1 / N1-N4 / F1-F4 / X1-X2
 
 完整定义与旧码映射见 `skills/healthconsult-assistant-skill/rules/taxonomy.md`；
 实现层单一事实源为 `backend/app/dialogue/taxonomy.py`。
@@ -122,6 +124,9 @@ system prompt 的「【已知信息】」块。
 ## 场景/风险分级与语料检索（运行时已接入）
 
 对话前先用关键词/规则快路径**预判风险等级与场景类别**，再据此选 prompt 形态、路由模型、注入检索样例。
+第三阶段（2026-10）场景类别由 16 类扩至 **24 类**：新增 S5 检查报告 / M3 认知障碍关怀 /
+L5 智能设备使用 / N4 走失防范，以及家属视角 **F 组（F1 照护指导 / F2 代询病情 /
+F3 照护者关怀 / F4 就医协助）**；训练语料由 498 条扩至 **1725 条**（家属视角占约 22%）。
 
 ```
 用户输入
@@ -142,9 +147,9 @@ system prompt 的「【已知信息】」块。
 - `reranker.py`：向量相似度 + 字符 n-gram + 关键词/标签命中的混合打分，只保留 Top-N(2~5) 交给 LLM。
 - `prompt.py`：`load_compact_prompt()` 按二级标题从 SKILL.md 抽取规范性小节（保留 1-6/8/9/13/15），
   去掉静态正/反示例，由检索到的真实语料替代示例——以 SKILL.md 为单一事实源。
-- 语料：`backend/app/dialogue/corpus/scene_risk_corpus.jsonl`（**569 条**，稳定编号 C001…），
-  由 `tools/build_scene_risk_corpus.py` 从训练语料 `v0.3.0_corpus500.jsonl`（498 条）投影派生；
-  运行时检索样例用带回复的 `v0.3.0_corpus500.jsonl`（`EXEMPLAR_CORPUS_PATH`）。
+- 语料：`backend/app/dialogue/corpus/scene_risk_corpus.jsonl`（**1816 条**，稳定编号 C001…），
+  由 `tools/build_scene_risk_corpus.py` 从训练语料 `v0.4.0_corpus_expanded.jsonl`（1725 条 / 24 场景）投影派生；
+  运行时检索样例用带回复的 `v0.4.0_corpus_expanded.jsonl`（`EXEMPLAR_CORPUS_PATH`）。
 - 开关：`RUNTIME_CLASSIFIER` / `RUNTIME_RETRIEVAL` / `PROMPT_COMPACT`（默认均开启）。
 - 工具：`tools/classify_scene_risk.py`（CLI，`--mode auto|keyword|llm`、`--setup` 预热）、
   `tools/eval_classifier.py`（快路径覆盖率 / 兜底率 / 准确率 / token 估算）。

@@ -1,0 +1,2 @@
+﻿line,sample_id,severity,reason
+1,seed_F1_R0_01,warning,emergency_scene_missing_escalation_undeclared_scene
