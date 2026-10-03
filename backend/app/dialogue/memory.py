@@ -11,6 +11,7 @@ import logging
 import re
 
 from ..config import Settings, get_settings
+from ..providers import get_llm
 from ..profile import (
     PROFILE_KEYS,
     PROFILE_LABELS,
@@ -20,7 +21,6 @@ from ..profile import (
     sanitize_collected,
 )
 from ..storage import Database
-from .llm_client import LLMClient
 from .markers import append_marker
 
 logger = logging.getLogger("xiaonuan.memory")
@@ -101,7 +101,7 @@ class MemoryManager:
     def __init__(self, db: Database, llm=None, settings: Settings | None = None):
         self.db = db
         self.settings = settings or get_settings()
-        self.llm = llm or LLMClient(self.settings)
+        self.llm = llm or get_llm(self.settings)
 
     def prepare(self, session_id: str) -> dict:
         """返回 {history, memory_block, summary, profile, user_id}。"""

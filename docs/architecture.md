@@ -73,10 +73,13 @@ system prompt 的「【已知信息】」块。
 | `backend/app/dialogue/reranker.py` | 已实现（向量 + n-gram + 关键词混合精排） |
 | `backend/app/cache.py` | 已实现（低风险首轮问答缓存，默认关闭） |
 | `backend/app/security.py` | 已实现（API Key 鉴权 + 按 IP 限流） |
-| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/R2b 开启） |
+| `backend/app/providers/` | 已实现（第三阶段：`get_llm()` 按 `OFFLINE_MODE` 返回云端/本地 LLM；`local_llm.py` 端点优先+进程内回退、绝不回退云端；`embedding.py` 严格嵌入构造） |
+| `backend/app/safety/semantic_checker.py` | 已实现（高风险 LLM 语义复核，默认对 R3/R2b 开启；离线档放宽到全等级） |
 | `backend/app/alerts.py` | 已实现（高危告警：日志 + 可选 webhook） |
 | `backend/app/logging_config.py` | 已实现（plain / json 结构化日志） |
-| `frontend/chat.html` | 已改为调用后端流式 API，浏览器不再接触大模型密钥 |
+| `voice_service/` | 已实现（第三阶段：本地 Paraformer ASR + Piper TTS + 流式/打断，契约 v1 不变；模型由 `download_models.py` 下载，约 300MB） |
+| `scripts/offline/` | 已实现（第三阶段：一条命令冷启动 `start.ps1`、模型下载 `fetch_model.ps1`、拔网线自检 `tools/offline_check.py`） |
+| `frontend/chat.html` | 已改为调用后端流式 API，浏览器不再接触大模型密钥；语音接线走 `scripts/voice.js` 直连 voice_service |
 
 > 鉴权：配置 `BACKEND_API_KEY` 后，除 `/api/health` 外接口需带 `X-API-Key`。审计日志记录每条回复的 `risk`/`violations`/`fallback_used`/`latency_ms`，便于高危场景复盘。
 

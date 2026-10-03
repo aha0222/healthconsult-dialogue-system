@@ -21,9 +21,9 @@ import logging
 from dataclasses import replace
 
 from ..config import Settings, get_settings
+from ..providers import get_llm
 from ..safety.safety_checker import check_reply, has_internal_leak
 from .classifier import SceneRiskClassifier
-from .llm_client import LLMClient
 from .markers import infer_risk_local, infer_tags_local, parse_marker
 from .prompt import (
     DEFAULT_PERSONALITY,
@@ -140,7 +140,7 @@ class DialogueOrchestrator:
         classifier=None,
     ):
         self.settings = settings or get_settings()
-        self.llm = llm or LLMClient(self.settings)
+        self.llm = llm or get_llm(self.settings)
         self.semantic_checker = semantic_checker
         self._classifier = classifier
         self._exemplar_retriever = None

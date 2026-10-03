@@ -1,0 +1,19 @@
+# 离线包产物与模型权重：体积大、可由脚本重建，不入库。
+#
+# 放在本目录而不是改仓库根 .gitignore —— 那是共享文件，
+# 且根 .gitignore 只忽略 .cache/，模型放在 .cache/ 下会被连带忽略掉。
+
+dist/
+models/
+bin/
+wheels/
+logs/
+*.gguf
+*.ggml
+*.dll
+*.exe
+*.zip
+
+# 本机实际使用的离线档配置与解释器路径（含本机路径，不该进别人的机器）
+.env.offline
+.python_path

@@ -1,0 +1,73 @@
+Subject: 修复 R2b 在 canonical 风险集合下静默失效（应用 Day0 契约 stub 后必现）
+
+应用 Day0 契约 stub 后，config.py 的 semantic_check_risks / alert_risks
+从 _split_set（全大写，{"R3","R2B"}）改为 _canonical_only（保留 R2a/R2b
+小写，{"R3","R2b"}）。但两个消费方仍在把查询值大写：
+
+    (risk or "").upper() in <集合>     # "R2b" -> "R2B"，对不上 "R2b"
+
+后果（均为静默，无日志、无异常）：
+  1. backend/app/alerts.py:24  should_alert()      -> R2b 告警不发
+  2. orchestrator.py:213       _finalize()         -> R2b 第三层语义复核整层不跑
+
+R2b 是「严重但非立即致命」档（黑便/发热/中风后减药一类），
+正好命中分工方案里「不得静默降级」的硬约束。
+
+复现：pytest backend/tests/test_alerts.py::test_should_alert_by_risk
+修复前失败、修复后通过（全量 199 passed）。
+
+修复方式：两处都用项目自己的 canonical_risk() 比较，而不是粗暴大写。
+orchestrator.py 已导入该函数；alerts.py 需新增一行导入。
+
+说明：本补丁由成员 B 在本地工作副本上打出并验证，用于让离线验收跑通。
+这两个文件不属于 B 的目录，故以补丁形式提交，请组长决定是否合入。
+
+---
+
+--- a/backend/app/alerts.py
++++ b/backend/app/alerts.py
+@@ -2,7 +2,7 @@
+ 
+ 触发条件（满足其一）：
+   - 回复命中硬红线（fallback_used=True）
+-  - 风险等级在 ALERT_RISKS 集合内（默认 R3/M0/S0）
++  - 风险等级在 ALERT_RISKS 集合内（默认 R3,R2b）
+ 
+ 推送失败不影响主链路。
+ """
+@@ -12,6 +12,7 @@
+ import httpx
+ 
+ from .config import get_settings
++from .dialogue.taxonomy import canonical_risk
+ from .logging_config import log_event
+ 
+ alert_logger = logging.getLogger("xiaonuan.alert")
+@@ -21,7 +22,9 @@
+     settings = settings or get_settings()
+     if fallback_used:
+         return True
+-    return (risk or "").upper() in settings.alert_risks
++    # 用 canonical_risk 而非 .upper()：风险等级规范形式保留 R2a/R2b 的小写字母，
++    # 大写化会得到 "R2B" 而对不上集合里的 "R2b"，导致 R2b 告警静默失效。
++    return canonical_risk(risk) in settings.alert_risks
+ 
+ 
+ def send_alert(record: dict, settings=None) -> bool:
+--- a/backend/app/dialogue/orchestrator.py
++++ b/backend/app/dialogue/orchestrator.py
+@@ -206,11 +206,13 @@
+             reply = LEAK_DEFLECTION
+ 
+         # 第三层：高风险场景的 LLM 语义复核（关键词漏网之鱼的兜底）
++        # 用 canonical_risk 而非 .upper()：规范形式保留 R2a/R2b 的小写字母，
++        # 大写化会得到 "R2B" 而对不上集合里的 "R2b"，导致 R2b 整层复核不跑。
+         semantic_checked = False
+         if (
+             not fallback_used
+             and self.semantic_checker is not None
+-            and (risk or "").upper() in self.settings.semantic_check_risks
++            and canonical_risk(risk) in self.settings.semantic_check_risks
+         ):
+             try:
+                 review = self.semantic_checker.check(message, reply, risk, scenes)

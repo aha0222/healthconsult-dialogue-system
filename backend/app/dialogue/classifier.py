@@ -15,8 +15,8 @@ import re
 from dataclasses import dataclass, field
 
 from ..config import Settings, get_settings
+from ..providers import get_llm
 from ..safety.safety_checker import detect_scenes
-from .llm_client import LLMClient
 from .markers import infer_tags_local
 from .reranker import rerank
 from .retriever import Retriever, build_embedder, load_corpus
@@ -172,7 +172,7 @@ class SceneRiskClassifier:
     @property
     def llm(self):
         if self._llm is None:
-            self._llm = LLMClient(self.settings)
+            self._llm = get_llm(self.settings)
         return self._llm
 
     @property

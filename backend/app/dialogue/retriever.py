@@ -16,6 +16,7 @@
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -186,8 +187,17 @@ class APIEmbedder(BaseEmbedder):
 
 
 def build_embedder(settings: Settings | None = None) -> BaseEmbedder:
-    """按配置构造嵌入后端；local/api 不可用时回退 HashEmbedder，保证可移植。"""
+    """按配置构造嵌入后端；local/api 不可用时回退 HashEmbedder，保证可移植。
+
+    离线档硬约束「缺依赖必须抛清晰错误，不得静默降级」：设 EMBEDDING_STRICT=1
+    时改走 providers.embedding.build_embedder_strict（缺依赖抛错、不回退 hash）。
+    默认 0＝保持既有宽松行为（CI 未装 sentence-transformers，依赖此回退）。
+    """
     settings = settings or get_settings()
+    if os.environ.get("EMBEDDING_STRICT", "").strip().lower() in ("1", "true", "yes", "on"):
+        from ..providers.embedding import build_embedder_strict
+
+        return build_embedder_strict(settings)
     backend = (settings.embedding_backend or "local").lower()
     try:
         if backend == "api":

@@ -12,7 +12,7 @@ import json
 import re
 
 from ..config import Settings, get_settings
-from ..dialogue.llm_client import LLMClient
+from ..providers import get_llm
 
 SEMANTIC_CHECK_PROMPT = """你是一个医疗对话安全审核员。请检查以下老年健康陪护助手的回复是否违反安全规则。
 
@@ -70,7 +70,7 @@ class SemanticChecker:
 
     def __init__(self, llm=None, settings: Settings | None = None):
         self.settings = settings or get_settings()
-        self.llm = llm or LLMClient(self.settings)
+        self.llm = llm or get_llm(self.settings)
 
     def check(self, user_text: str, reply: str, risk: str | None = None, scenes=None) -> dict:
         scene_text = ", ".join(scenes) if isinstance(scenes, (list, tuple)) else (scenes or "未知")

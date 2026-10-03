@@ -1,0 +1,128 @@
+Subject: 把 get_llm() 接进四处调用点 + 给 /api/chat/stream 加离线门禁豁免
+
+不加这个补丁，OFFLINE_MODE=1 也**用不了**：应用会继续 new 云端 LLMClient，
+带着哑 key 去连 api.deepseek.com，实测得到 401。
+
+改动共五处：
+
+  1) backend/app/dialogue/orchestrator.py:116  LLMClient(self.settings) -> get_llm(self.settings)
+  2) backend/app/dialogue/classifier.py:172    （惰性 property 里那处）
+  3) backend/app/dialogue/memory.py:115
+  4) backend/app/safety/semantic_checker.py:73
+  5) backend/app/main.py:277                   门禁加 offline_mode 豁免
+
+**四处必须一起改。** 只改 orchestrator 的话，semantic_checker 仍用 LLMClient，
+离线时它抛 LLMError，而 orchestrator.py:227 是宽 except Exception → 记 warning 后
+继续放行。结果是每个 R3/R2b 回复「检查了但检查不动」——安全层静默降级，
+正是分工方案里明令禁止的那种。
+
+第 5 处同样必须改：前端 frontend/scripts/chat.js:724 **只调 /api/chat/stream**，
+而该接口有 `if not settings.has_api_key: 502` 的硬编码门禁。离线时按设计没有云端
+Key，第一句话就被挡住，永远走不到 LocalLLM。
+
+配套改动（不在本补丁里）：
+  backend/app/providers/__init__.py 的 get_llm() 扩了可选参数 settings=None，
+  向后兼容——不传时行为与冻结契约完全一致，stub 的两条契约测试仍通过。
+  该文件属于成员 B 的独占目录，随交付包直接提供。
+
+验证：
+  · pytest backend/tests -> 219 passed
+  · OFFLINE_MODE=1 时四处均返回 LocalLLM；未设时仍返回 LLMClient（零回归）
+  · 端到端：不设 DEEPSEEK_API_KEY，POST /api/chat/stream 得到 HTTP 200 +
+    本地模型流式输出（实测 96.5s，CPU 预填充分大头）
+
+说明：本补丁由成员 B 在本地工作副本上打出并验证，用于让离线模式真正可用。
+这些文件不属于 B 的目录，故以补丁形式提交，请组长决定是否合入。
+
+---
+
+--- a/backend/app/dialogue/orchestrator.py
++++ b/backend/app/dialogue/orchestrator.py
+@@ -14,6 +14,7 @@
+ import logging
+ 
+ from ..config import Settings, get_settings
++from ..providers import get_llm
+ from ..safety.safety_checker import check_reply, has_internal_leak
+ from .llm_client import LLMClient
+ from .markers import infer_tags_local, parse_marker
+@@ -113,7 +114,7 @@
+ class DialogueOrchestrator:
+     def __init__(self, llm=None, settings: Settings | None = None, semantic_checker=None):
+         self.settings = settings or get_settings()
+-        self.llm = llm or LLMClient(self.settings)
++        self.llm = llm or get_llm(self.settings)
+         self.semantic_checker = semantic_checker
+ 
+     def _build_messages(self, message: str, personality: str, history, memory_block=None):
+--- a/backend/app/dialogue/classifier.py
++++ b/backend/app/dialogue/classifier.py
+@@ -15,6 +15,7 @@
+ from dataclasses import dataclass, field
+ 
+ from ..config import Settings, get_settings
++from ..providers import get_llm
+ from ..safety.safety_checker import detect_scenes
+ from .llm_client import LLMClient
+ from .markers import infer_tags_local
+@@ -169,7 +170,7 @@
+     @property
+     def llm(self):
+         if self._llm is None:
+-            self._llm = LLMClient(self.settings)
++            self._llm = get_llm(self.settings)
+         return self._llm
+ 
+     @property
+--- a/backend/app/dialogue/memory.py
++++ b/backend/app/dialogue/memory.py
+@@ -11,6 +11,7 @@
+ import re
+ 
+ from ..config import Settings, get_settings
++from ..providers import get_llm
+ from ..storage import Database
+ from .llm_client import LLMClient
+ from .markers import append_marker
+@@ -112,7 +113,7 @@
+     def __init__(self, db: Database, llm=None, settings: Settings | None = None):
+         self.db = db
+         self.settings = settings or get_settings()
+-        self.llm = llm or LLMClient(self.settings)
++        self.llm = llm or get_llm(self.settings)
+ 
+     def prepare(self, session_id: str) -> dict:
+         """返回 {history, memory_block, summary, profile}。"""
+--- a/backend/app/safety/semantic_checker.py
++++ b/backend/app/safety/semantic_checker.py
+@@ -13,6 +13,7 @@
+ 
+ from ..config import Settings, get_settings
+ from ..dialogue.llm_client import LLMClient
++from ..providers import get_llm
+ 
+ SEMANTIC_CHECK_PROMPT = """你是一个医疗对话安全审核员。请检查以下老年健康陪护助手的回复是否违反安全规则。
+ 
+@@ -70,7 +71,7 @@
+ 
+     def __init__(self, llm=None, settings: Settings | None = None):
+         self.settings = settings or get_settings()
+-        self.llm = llm or LLMClient(self.settings)
++        self.llm = llm or get_llm(self.settings)
+ 
+     def check(self, user_text: str, reply: str, risk: str | None = None, scenes=None) -> dict:
+         scene_text = ", ".join(scenes) if isinstance(scenes, (list, tuple)) else (scenes or "未知")
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -274,7 +274,10 @@
+     db: Database = Depends(get_db),
+     memory: MemoryManager = Depends(get_memory),
+ ):
+-    if not settings.has_api_key:
++    # 离线模式不需要云端 Key：LLMClient 才要求它，LocalLLM 不读。
++    # 不加这个豁免，离线时前端（只调本接口）第一句话就会被 502 挡住，
++    # 永远走不到本地模型。
++    if not settings.has_api_key and not getattr(settings, "offline_mode", False):
+         raise HTTPException(
+             status_code=502,
+             detail="未配置 DEEPSEEK_API_KEY，无法调用大模型。",

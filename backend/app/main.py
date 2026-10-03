@@ -326,7 +326,10 @@ def chat_stream(
     db: Database = Depends(get_db),
     memory: MemoryManager = Depends(get_memory),
 ):
-    if not settings.has_api_key:
+    # 离线模式不需要云端 Key：LLMClient 才要求它，LocalLLM 不读。
+    # 不加这个豁免，离线时前端（只调本接口）第一句话就会被 502 挡住，
+    # 永远走不到本地模型。（成员 B 交付补丁 0002 第 5 处）
+    if not settings.has_api_key and not settings.offline_mode:
         raise HTTPException(
             status_code=502,
             detail="未配置 DEEPSEEK_API_KEY，无法调用大模型。",

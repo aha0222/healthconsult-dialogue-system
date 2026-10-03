@@ -20,16 +20,27 @@ B 的交付标准：
 from __future__ import annotations
 
 
-def get_llm():
+def get_llm(settings=None):
     """返回当前生效的 LLM 客户端。
 
     默认（OFFLINE_MODE 未开启 / 未配置）＝ 现有云 LLM（现状）。
     OFFLINE_MODE 开启时＝本地 LLM（B 新增实现）。
+
+    参数 settings（成员 B 新增，**向后兼容**）：
+        不传时读 `get_settings()` 单例，与原契约完全一致；stub 的两条契约
+        测试都是无参调用，仍然通过。
+        传时用调用方自己的 Settings。
+
+        为什么需要它：四个调用点各自持有 `self.settings`，而
+        `tools/eval_risk.py:51` 是用 CLI 的 --api-key/--base-url/--model
+        构造 `Settings(**overrides)` 再传进 orchestrator 的。若强制无参，
+        这些 CLI 覆盖会**静默失效**（改用全局 .env），而单元测试覆盖不到
+        ——测试都直接注入了 fake llm。
     """
     from ..config import get_settings
     from ..dialogue.llm_client import LLMClient
 
-    settings = get_settings()
+    settings = settings or get_settings()
 
     # getattr 兜底：组长尚未在 Settings 加 offline_mode 时，安全回退到在线行为。
     if getattr(settings, "offline_mode", False):
