@@ -1,4 +1,4 @@
-"""小暖语音服务 · 契约空壳（Day0 冻结版）。
+"""小暖语音服务（契约 v1 · Day0 冻结 · 已实现）。
 
 ┌─ 这是什么 ────────────────────────────────────────────────────────────┐
 │ 一个**独立进程 / 独立端口**（默认 127.0.0.1:8100）的语音能力服务，      │
@@ -20,10 +20,12 @@
   WS   /voice/stream  -> 双向事件流，事件名见 README.md
                          speech_start / partial / final / reply_audio / interrupt / error
 
-当前状态：**空壳**。
-  - /health        永远可用（便于 Day0 接线与探活）。
-  - /asr /tts /voice/stream  返回 501 Not Implemented，调用方据此回退到打字/静默。
-  - A 的交付标准：把下面三个 501 换成真实实现，**签名与事件名一个字不许改**。
+当前状态：**已实现**。
+  - /health        永远 200；模型就绪时 asr/tts 为 true。
+  - /asr          本地中文识别；模型未就绪返回 501，音频解码失败返回空文本。
+  - /tts          本地中文合成（wav）；模型未就绪返回 501。
+  - /voice/stream 流式识别（speech_start/partial/final）+ 打断（interrupt）。
+  - 签名与事件名与契约 v1 一致，不得改动。
 
 依赖：fastapi / uvicorn（见 requirements.txt；空壳期不依赖 python-multipart）。
 启动：python -m voice_service   （等价于 uvicorn voice_service.app:app --port 8100）
@@ -34,11 +36,17 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import asyncio
+import json
+import logging
+import time
+
 from fastapi import (
     FastAPI,
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -46,6 +54,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import CONTRACT_VERSION, DEFAULT_PORT, SERVICE_NAME, __version__
+from . import asr as _asr
+from . import tts as _tts
+from . import vad as _vad
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="小暖语音服务", version=__version__)
 
@@ -57,9 +70,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 能力就绪开关：A 实现后置为 "1"（或直接恒为 True）。空壳期为 False。
-ASR_READY = os.environ.get("VOICE_ASR_READY", "0") == "1"
-TTS_READY = os.environ.get("VOICE_TTS_READY", "0") == "1"
+def _readiness(env_key: str, available: bool) -> bool:
+    """能力就绪判断：默认按模型文件是否存在自动判断，环境变量可强制覆盖。"""
+    raw = os.environ.get(env_key, "").strip().lower()
+    if raw in ("", "auto"):
+        return available
+    return raw in ("1", "true", "yes", "on")
+
+
+# 模型已下载即视为就绪；未下载时保持 501 回退（契约测试仍全绿）。
+ASR_READY = _readiness("VOICE_ASR_READY", _asr.is_available())
+TTS_READY = _readiness("VOICE_TTS_READY", _tts.is_available())
 
 
 class TTSRequest(BaseModel):
@@ -72,10 +93,10 @@ class TTSRequest(BaseModel):
 
 
 def _not_implemented(what: str) -> None:
-    """统一 501。前端收到 501 即回退到打字输入 / 静默。"""
+    """统一 501：模型未就绪时调用，前端据此回退到打字 / 静默。"""
     raise HTTPException(
         status_code=501,
-        detail=f"{what} 尚未实现（voice_service 契约空壳，等待 A 交付）",
+        detail=f"{what} 模型未就绪（请先运行 python voice_service/download_models.py 下载模型）",
     )
 
 
@@ -102,44 +123,132 @@ async def asr(
     入参：**原始音频字节** 直接作为 request body（Content-Type: audio/wav
           或 application/octet-stream），避免依赖 python-multipart。
     契约返回：{"text": str, "is_final": bool, "confidence": float}
-    A 实现时保持字段不变；空壳期返回 501。
+    未下载模型时返回 501；识别失败时返回空结果（调用方可据此回退）。
     """
-    _ = await request.body()  # 空壳期丢弃；A 实现时在此调用本地 ASR
-    _not_implemented("ASR")
+    if not ASR_READY:
+        _not_implemented("ASR")
+    data = await request.body()
+    try:
+        text, is_final, confidence = _asr.transcribe(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ASR 处理失败：%s", exc)
+        raise HTTPException(status_code=500, detail=f"ASR 处理失败：{exc}")
+    return {"text": text, "is_final": is_final, "confidence": confidence}
 
 
 @app.post("/tts")
 def tts(req: TTSRequest):
     """文本 -> wav 音频字节流（Content-Type: audio/wav）。
 
-    A 实现时返回 fastapi.responses.Response(content=wav_bytes,
-    media_type="audio/wav")；空壳期返回 501。
+    未下载模型时返回 501；合成失败返回 500 并附带清晰错误信息。
     """
-    _not_implemented("TTS")
+    if not TTS_READY:
+        _not_implemented("TTS")
+    try:
+        wav_bytes = _tts.synthesize(req.text, speed=req.speed)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("TTS 合成失败：%s", exc)
+        raise HTTPException(status_code=500, detail=f"TTS 合成失败：{exc}")
+    return Response(content=wav_bytes, media_type="audio/wav")
 
 
 @app.websocket("/voice/stream")
 async def voice_stream(ws: WebSocket) -> None:
-    """双向流式语音事件通道（A 实现）。
+    """双向流式语音事件通道。
 
     事件名（冻结）：
-      客户端 -> 服务端：audio_chunk(二进制) / commit / interrupt / ping
+      客户端 -> 服务端：audio_chunk(二进制 PCM16, 16kHz 单声道) / commit / interrupt / ping
       服务端 -> 客户端：speech_start / partial{text} / final{text}
                         / reply_audio(二进制) / interrupt / error{code,message}
-    空壳期：接受连接后发一条 error 再关闭，避免前端卡死。
     """
     await ws.accept()
+    pcm = bytearray()
+    speaking = False
+    last_partial = ""
+    last_partial_ts = 0.0
     try:
-        await ws.send_json(
-            {
-                "event": "error",
-                "code": "not_implemented",
-                "message": "语音流式接口尚未实现（voice_service 契约空壳）",
-            }
-        )
+        while True:
+            message = await ws.receive()
+            mtype = message.get("type")
+            if mtype == "websocket.disconnect":
+                break
+            if mtype != "websocket.receive":
+                continue
+
+            chunk = message.get("bytes")
+            if chunk is not None:
+                pcm.extend(chunk)
+                if not speaking and _vad.is_speech_pcm16(bytes(chunk)):
+                    speaking = True
+                    await ws.send_json({"event": "speech_start"})
+                now = time.monotonic()
+                if (
+                    ASR_READY
+                    and speaking
+                    and now - last_partial_ts >= 1.0
+                    and len(pcm) >= _asr.TARGET_SAMPLE_RATE * 2
+                ):
+                    try:
+                        text = await asyncio.to_thread(
+                            lambda: _asr.transcribe_pcm16(bytes(pcm))[0]
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("流式 partial 识别失败：%s", exc)
+                        text = ""
+                    if text and text != last_partial:
+                        await ws.send_json({"event": "partial", "text": text})
+                        last_partial = text
+                    last_partial_ts = now
+                continue
+
+            text_data = message.get("text")
+            if not text_data:
+                continue
+            try:
+                payload = json.loads(text_data)
+            except (TypeError, ValueError):
+                payload = {}
+            name = payload.get("event")
+
+            if name == "commit":
+                if not ASR_READY:
+                    pcm.clear()
+                    speaking = False
+                    last_partial = ""
+                    await ws.send_json(
+                        {
+                            "event": "error",
+                            "code": "asr_not_ready",
+                            "message": "ASR 模型未就绪",
+                        }
+                    )
+                    continue
+                try:
+                    if pcm:
+                        text, _, confidence = await asyncio.to_thread(
+                            _asr.transcribe_pcm16, bytes(pcm)
+                        )
+                    else:
+                        text, confidence = "", 0.0
+                    await ws.send_json(
+                        {"event": "final", "text": text, "confidence": confidence}
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("流式 final 识别失败：%s", exc)
+                    await ws.send_json(
+                        {"event": "error", "code": "asr_failed", "message": str(exc)}
+                    )
+                pcm.clear()
+                speaking = False
+                last_partial = ""
+            elif name == "interrupt":
+                pcm.clear()
+                speaking = False
+                last_partial = ""
+                await ws.send_json({"event": "interrupt"})
+            # ping：no-op，仅用于保活
     except WebSocketDisconnect:
         return
-    await ws.close()
 
 
 if __name__ == "__main__":  # pragma: no cover - 便捷调试入口

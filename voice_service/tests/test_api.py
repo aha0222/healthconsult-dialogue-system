@@ -42,8 +42,26 @@ def test_tts_contract_shape():
         assert r.headers["content-type"].startswith("audio/")
 
 
-def test_voice_stream_reports_error_when_stub():
-    """空壳期：连上后应先收到 error 事件，而不是静默挂起。"""
+def test_voice_stream_contract():
+    """实现后：发送音频 + commit，应能收到 final 事件且带 text 字段。"""
+    import numpy as np
+
     with client.websocket_connect("/voice/stream") as ws:
-        msg = ws.receive_json()
-        assert msg["event"] == "error"
+        # 1 秒 440Hz 正弦波（16kHz 单声道 int16），足以触发 speech_start / final
+        samples = (
+            np.sin(2 * np.pi * 440 * np.arange(16000) / 16000) * 8000
+        ).astype(np.int16)
+        ws.send_bytes(samples.tobytes())
+        ws.send_json({"event": "commit"})
+
+        got = None
+        for _ in range(10):
+            msg = ws.receive_json()
+            if msg["event"] in ("final", "error"):
+                got = msg
+                break
+        assert got is not None
+        if got["event"] == "final":
+            assert "text" in got
+        else:
+            assert "code" in got

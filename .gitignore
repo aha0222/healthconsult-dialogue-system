@@ -38,6 +38,12 @@ backend/data/
 # 嵌入向量缓存（本地生成，不入库）
 .cache/
 
+# 语音本地模型（约 300MB，由 voice_service/download_models.py 下载，不入库）
+voice_service/models/asr/*
+voice_service/models/tts/*
+!voice_service/models/.gitkeep
+!voice_service/models/README.md
+
 # Generated data artifacts (不提交；需要时在本地重跑生成脚本)
 # 注意：运行时检索用的 v0.3.0_corpus500.jsonl 与 CI 引用的
 # v0.2.3_health_safety_repair.jsonl 属于发布物，保留入库。

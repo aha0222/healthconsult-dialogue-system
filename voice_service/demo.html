@@ -3,42 +3,283 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>voice_service 独立验证台</title>
+<title>小暖 · 语音服务验证台</title>
 <style>
-  body { font-family: "Microsoft YaHei", system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color:#1f2937; }
-  h1 { font-size: 20px; }
-  .row { margin: 14px 0; }
-  button { font-size: 16px; padding: 10px 18px; border-radius: 8px; border: 1px solid #2563eb; background:#eff6ff; color:#1e3a8a; cursor:pointer; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  textarea { width: 100%; height: 90px; font-size: 15px; padding: 8px; box-sizing: border-box; }
-  pre { background:#f3f4f6; padding: 12px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; }
-  .tag { font-size: 12px; color:#6b7280; }
+  :root {
+    --bg: #f6f1ea;
+    --card: #ffffff;
+    --ink: #3b322a;
+    --muted: #8d8277;
+    --line: #ece4da;
+    --accent: #e8834a;
+    --accent-deep: #d96a2f;
+    --accent-soft: #fbeadd;
+    --blue: #3d7bd9;
+    --green: #2e9e6b;
+    --red: #dc5a45;
+    --purple: #7c5cbf;
+    --shadow: 0 14px 40px rgba(72, 48, 24, .08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #ffe8d2 0%, rgba(255,232,210,0) 60%),
+      radial-gradient(1000px 500px at -10% 110%, #f3e4ff 0%, rgba(243,228,255,0) 55%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 32px 16px;
+    line-height: 1.6;
+  }
+  .shell {
+    max-width: 820px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    padding: 20px 22px;
+  }
+  .hero { padding: 26px 24px 22px; }
+  .hero .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .hero h1 {
+    margin: 10px 0 4px;
+    font-size: 24px;
+    letter-spacing: .01em;
+  }
+  .hero p.sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .addr {
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .addr label { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .addr input {
+    flex: 1;
+    font: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--ink);
+    background: #fbf8f4;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .addr input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232,131,74,.15);
+  }
+  .grid { display: flex; flex-direction: column; gap: 14px; }
+  .fn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .fn-head { display: flex; align-items: flex-start; gap: 13px; min-width: 220px; flex: 1; }
+  .fn-icon {
+    width: 42px; height: 42px;
+    display: grid; place-items: center;
+    border-radius: 12px;
+    font-size: 20px;
+    background: #f6f0e9;
+    flex: none;
+  }
+  .fn-title { margin: 0; font-size: 15px; font-weight: 700; }
+  .fn-desc { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+  .fn-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    color: #fff;
+    transition: transform .08s, filter .15s, box-shadow .15s;
+    white-space: nowrap;
+  }
+  .btn:hover { filter: brightness(1.04); }
+  .btn:active { transform: translateY(1px); }
+  .btn.health { background: var(--blue); }
+  .btn.rec { background: var(--red); }
+  .btn.tts { background: var(--green); }
+  .btn.stream { background: var(--purple); }
+  .btn.interrupt { background: var(--accent); }
+  .tag {
+    font-size: 12px;
+    color: var(--muted);
+    min-width: 90px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 78px;
+    font: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fbf8f4;
+    color: var(--ink);
+    resize: vertical;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,131,74,.15); }
+  .tts-box { display: flex; flex-direction: column; gap: 10px; }
+  .log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .log-head span { font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+  .log-head .dot { display:inline-flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); font-weight:400; }
+  .log-head .dot::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--green); }
+  pre.log {
+    margin: 0;
+    min-height: 150px;
+    max-height: 300px;
+    overflow: auto;
+    background: #27211b;
+    color: #f3e7d8;
+    border-radius: 14px;
+    padding: 14px 16px;
+    font-family: "Cascadia Mono", "Consolas", "Menlo", monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .foot { text-align: center; font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
-  <h1>voice_service · 独立验证台</h1>
-  <p class="tag">服务地址：<input id="base" value="http://127.0.0.1:8100" style="width:260px" /></p>
+  <div class="shell">
+    <header class="card hero">
+      <span class="kicker">🌤 本地语音 · 离线可用</span>
+      <h1>小暖 · 语音服务验证台</h1>
+      <p class="sub">测试「听 / 说 / 流式识别 / 打断」四项本地语音能力，不依赖云端</p>
+      <div class="addr">
+        <label for="base">服务地址</label>
+        <input id="base" value="http://127.0.0.1:8100" />
+      </div>
+    </header>
 
-  <div class="row">
-    <button id="btnHealth">1. 探活 /health</button>
+    <main class="card grid">
+      <section class="fn">
+        <div class="fn-head">
+          <span class="fn-icon">🩺</span>
+          <div>
+            <h2 class="fn-title">服务探活</h2>
+            <p class="fn-desc">检查服务是否在运行、模型是否就绪（/health）</p>
+          </div>
+        </div>
+        <div class="fn-actions">
+          <button id="btnHealth" class="btn health">1. 探活 /health</button>
+        </div>
+      </section>
+
+      <section class="fn">
+        <div class="fn-head">
+          <span class="fn-icon">🎤</span>
+          <div>
+            <h2 class="fn-title">录音识别</h2>
+            <p class="fn-desc">对着麦克风说话，识别成文字（/asr）</p>
+          </div>
+        </div>
+        <div class="fn-actions">
+          <button id="btnRec" class="btn rec">2. 录音并识别（/asr，16kHz WAV）</button>
+          <span class="tag" id="recState"></span>
+        </div>
+      </section>
+
+      <section class="fn">
+        <div class="fn-head">
+          <span class="fn-icon">🔊</span>
+          <div>
+            <h2 class="fn-title">语音合成</h2>
+            <p class="fn-desc">把下方文字合成声音播放（/tts）</p>
+          </div>
+        </div>
+        <div class="fn-actions">
+          <button id="btnTts" class="btn tts">3. 合成播放（/tts）</button>
+        </div>
+      </section>
+
+      <div class="tts-box">
+        <textarea id="ttsText">您好，我是小暖，今天感觉怎么样？</textarea>
+      </div>
+
+      <section class="fn">
+        <div class="fn-head">
+          <span class="fn-icon">📡</span>
+          <div>
+            <h2 class="fn-title">流式识别</h2>
+            <p class="fn-desc">边说边出字，支持随时打断（/voice/stream）</p>
+          </div>
+        </div>
+        <div class="fn-actions">
+          <button id="btnStream" class="btn stream">4. 开始流式识别（/voice/stream）</button>
+          <span class="tag" id="streamState"></span>
+        </div>
+      </section>
+
+      <section class="fn">
+        <div class="fn-head">
+          <span class="fn-icon">⏹️</span>
+          <div>
+            <h2 class="fn-title">打断</h2>
+            <p class="fn-desc">停止正在播放或正在识别的内容</p>
+          </div>
+        </div>
+        <div class="fn-actions">
+          <button id="btnInterrupt" class="btn interrupt">打断</button>
+        </div>
+      </section>
+    </main>
+
+    <section class="card">
+      <div class="log-head">
+        <span>运行日志</span>
+        <span class="dot">实时输出</span>
+      </div>
+      <pre class="log" id="log"></pre>
+    </section>
+
+    <div class="foot">voice_service · 契约 v1 · 仅用于独立自测</div>
   </div>
-
-  <div class="row">
-    <button id="btnRec">2. 录音并识别（/asr）</button>
-    <span class="tag" id="recState"></span>
-  </div>
-
-  <div class="row">
-    <textarea id="ttsText">您好，我是小暖，今天感觉怎么样？</textarea>
-    <div><button id="btnTts">3. 合成播放（/tts）</button></div>
-  </div>
-
-  <pre id="log">（结果输出）</pre>
 
 <script>
   const $ = (id) => document.getElementById(id);
   const log = (m) => { $("log").textContent += "\n" + m; };
   const base = () => $("base").value.replace(/\/$/, "");
+  const TARGET_RATE = 16000;
 
   $("btnHealth").onclick = async () => {
     try {
@@ -47,31 +288,98 @@
     } catch (e) { log("[/health] 失败：" + e.message); }
   };
 
-  let rec = null, chunks = [];
+  // ---- 录音：用 Web Audio 降到 16kHz 单声道，再编码成 WAV ----
+  let audioCtx = null, srcNode = null, procNode = null, micStream = null, chunks = [];
+  let currentAudio = null;
+
+  function encodeWav(samples, rate) {
+    const buf = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buf);
+    const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    str(0, "RIFF"); view.setUint32(4, 36 + samples.length * 2, true);
+    str(8, "WAVE"); str(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);   // PCM
+    view.setUint16(22, 1, true);   // mono
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    str(36, "data"); view.setUint32(40, samples.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < samples.length; i++, off += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return buf;
+  }
+
+  function downsample(input, fromRate, toRate) {
+    if (fromRate === toRate) return input;
+    const ratio = fromRate / toRate;
+    const n = Math.max(1, Math.floor(input.length / ratio));
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const pos = i * ratio;
+      const i0 = Math.floor(pos);
+      const i1 = Math.min(i0 + 1, input.length - 1);
+      const frac = pos - i0;
+      out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+    }
+    return out;
+  }
+
+  async function startRecording() {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    srcNode = audioCtx.createMediaStreamSource(micStream);
+    procNode = audioCtx.createScriptProcessor(4096, 1, 1);
+    chunks = [];
+    procNode.onaudioprocess = (e) => {
+      chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    srcNode.connect(procNode);
+    procNode.connect(audioCtx.destination);
+  }
+
+  async function stopRecording() {
+    procNode.onaudioprocess = null;
+    srcNode.disconnect();
+    procNode.disconnect();
+    micStream.getTracks().forEach(t => t.stop());
+
+    let total = 0;
+    chunks.forEach(a => total += a.length);
+    const merged = new Float32Array(total);
+    let off = 0;
+    chunks.forEach(a => { merged.set(a, off); off += a.length; });
+
+    const down = downsample(merged, audioCtx.sampleRate, TARGET_RATE);
+    await audioCtx.close();
+    return encodeWav(down, TARGET_RATE);
+  }
+
   $("btnRec").onclick = async () => {
-    if (rec && rec.state === "recording") { rec.stop(); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      rec = new MediaRecorder(stream);
-      chunks = [];
-      rec.ondataavailable = (e) => chunks.push(e.data);
-      rec.onstop = async () => {
-        $("recState").textContent = "上传中…";
-        const blob = new Blob(chunks, { type: rec.mimeType });
-        try {
-          const r = await fetch(base() + "/asr?language=zh", {
-            method: "POST",
-            headers: { "Content-Type": blob.type || "application/octet-stream" },
-            body: blob
-          });
-          log("[/asr] " + r.status + " " + (await r.text()));
-        } catch (e) { log("[/asr] 失败：" + e.message); }
-        $("recState").textContent = "";
-        stream.getTracks().forEach(t => t.stop());
-      };
-      rec.start();
-      $("recState").textContent = "录音中，再次点击停止…";
-    } catch (e) { log("录音失败：" + e.message); }
+    if (audioCtx && audioCtx.state !== "closed") {
+      $("recState").textContent = "上传中…";
+      const wav = await stopRecording();
+      try {
+        const r = await fetch(base() + "/asr?language=zh", {
+          method: "POST",
+          headers: { "Content-Type": "audio/wav" },
+          body: wav
+        });
+        log("[/asr] " + r.status + " " + (await r.text()));
+      } catch (e) { log("[/asr] 失败：" + e.message); }
+      $("recState").textContent = "";
+      $("btnRec").textContent = "2. 录音并识别（/asr，16kHz WAV）";
+    } else {
+      try {
+        await startRecording();
+        $("recState").textContent = "录音中，再次点击停止…";
+        $("btnRec").textContent = "停止录音";
+      } catch (e) { log("录音失败：" + e.message); }
+    }
   };
 
   $("btnTts").onclick = async () => {
@@ -83,9 +391,84 @@
       });
       if (r.status !== 200) { log("[/tts] " + r.status + " " + (await r.text())); return; }
       const buf = await r.arrayBuffer();
-      new Audio(URL.createObjectURL(new Blob([buf], { type: "audio/wav" }))).play();
+      currentAudio = new Audio(URL.createObjectURL(new Blob([buf], { type: "audio/wav" })));
+      currentAudio.play();
       log("[/tts] 播放中…");
     } catch (e) { log("[/tts] 失败：" + e.message); }
+  };
+
+  // ---- 流式识别 + 打断 ----
+  let ws = null, sAudioCtx = null, sSrc = null, sProc = null, sMic = null;
+
+  function wsUrl() {
+    const scheme = base().startsWith("https") ? "wss://" : "ws://";
+    return scheme + base().replace(/^https?:\/\//, "") + "/voice/stream";
+  }
+
+  function floatToPcm16(f32) {
+    const i16 = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]));
+      i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return i16;
+  }
+
+  async function startStream() {
+    ws = new WebSocket(wsUrl());
+    ws.onmessage = (e) => {
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      if (m.event === "speech_start") log("[流式] 检测到开始说话");
+      else if (m.event === "partial") log("[流式 partial] " + m.text);
+      else if (m.event === "final") log("[流式 final] " + m.text);
+      else if (m.event === "interrupt") log("[流式] 已打断");
+      else if (m.event === "error") log("[流式] 出错：" + (m.message || m.code));
+    };
+    sMic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    sAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    sSrc = sAudioCtx.createMediaStreamSource(sMic);
+    sProc = sAudioCtx.createScriptProcessor(4096, 1, 1);
+    sProc.onaudioprocess = (e) => {
+      const f32 = new Float32Array(e.inputBuffer.getChannelData(0));
+      const down = downsample(f32, sAudioCtx.sampleRate, TARGET_RATE);
+      const pcm = floatToPcm16(down);
+      if (ws && ws.readyState === 1) ws.send(pcm.buffer);
+    };
+    sSrc.connect(sProc);
+    sProc.connect(sAudioCtx.destination);
+  }
+
+  async function stopStream(commit) {
+    if (sProc) sProc.onaudioprocess = null;
+    if (sSrc) sSrc.disconnect();
+    if (sProc) sProc.disconnect();
+    if (sMic) sMic.getTracks().forEach(t => t.stop());
+    if (sAudioCtx) await sAudioCtx.close();
+    if (commit && ws && ws.readyState === 1) ws.send(JSON.stringify({ event: "commit" }));
+  }
+
+  $("btnStream").onclick = async () => {
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) {
+      await stopStream(true);
+      $("streamState").textContent = "已提交，等待结果…";
+      setTimeout(() => {
+        if (ws) ws.close();
+        ws = null;
+        $("btnStream").textContent = "4. 开始流式识别（/voice/stream）";
+      }, 1500);
+    } else {
+      try {
+        await startStream();
+        $("streamState").textContent = "录音中，再点一次停止并提交…";
+        $("btnStream").textContent = "停止并提交";
+      } catch (e) { log("[流式] 录音失败：" + e.message); }
+    }
+  };
+
+  $("btnInterrupt").onclick = () => {
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ event: "interrupt" }));
+    log("[流式] 已发送打断指令（并停止播放）");
   };
 </script>
 </body>
