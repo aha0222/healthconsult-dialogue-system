@@ -17,3 +17,5 @@ logs/
 # 本机实际使用的离线档配置与解释器路径（含本机路径，不该进别人的机器）
 .env.offline
 .python_path
+# GPU 推理引擎目录（组长实测用：CUDA 版 llama.cpp + cudart，可由脚本重建）
+bin-cuda/
