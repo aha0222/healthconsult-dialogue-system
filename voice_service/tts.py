@@ -1,12 +1,15 @@
-"""本地语音合成（TTS）：piper 中文音色，离线 CPU 可跑。
+"""本地语音合成（TTS）：MeloTTS（sherpa-onnx）优先，piper 回退，离线 CPU/GPU 可跑。
 
-听感优化（针对「断句随意、人机感强」的反馈）：
+听感优化管线（针对「断句随意、人机感强」的反馈）：
   1. 合成前文本规范化——剥掉 LLM 回复里的 Markdown 残留（**、#、```、列表
-     序号）、emoji 与不可读符号；阿拉伯数字转中文读法（"150" → "一百五"，
-     piper 对裸数字的读法不稳定且怪）。
-  2. 按标点切句逐句合成，句间插入停顿——整段合成时 piper 的韵律/停顿不可控，
-     逐句合成后停顿严格跟标点走，长回复的呼吸感明显改善。
-  3. 单句过长（> MAX_SUBSENT_CHARS）再按逗号二次切，避免长句内部气息紊乱。
+     序号）、emoji 与不可读符号；阿拉伯数字转中文读法（"150" → "一百五"）。
+  2. 按标点切句逐句合成，句间插入停顿——停顿严格跟标点走，恢复呼吸感。
+  3. 单句过长（> MAX_SUBSENT_CHARS）再按逗号二次切。
+
+后端选择（模型都在 voice_service/models/，由下载脚本获取，不入库）：
+  - vits-melo-tts-zh_en/ 目录存在 → sherpa-onnx MeloTTS（中英混，韵律自然，首选）
+  - 否则 zh_CN-huayan-medium.onnx 存在 → piper（初版音色，兜底）
+两者都没有 → is_available() 为 False，/tts 走 501 回退分支。
 
 对外契约不变：synthesize(text, speed) -> 完整 wav 字节。
 """
@@ -18,13 +21,22 @@ import re
 import wave
 from pathlib import Path
 
-MODELS_DIR = Path(__file__).resolve().parent / "models" / "tts"
-MODEL = MODELS_DIR / "zh_CN-huayan-medium.onnx"
-CONFIG = MODELS_DIR / "zh_CN-huayan-medium.onnx.json"
+MODELS_DIR = Path(__file__).resolve().parent / "models"
 
-_voice = None
+# MeloTTS（sherpa-onnx vits）
+MELO_DIR = MODELS_DIR / "vits-melo-tts-zh_en"
+MELO_MODEL = MELO_DIR / "model.onnx"
+MELO_LEXICON = MELO_DIR / "lexicon.txt"
+MELO_TOKENS = MELO_DIR / "tokens.txt"
+MELO_DICT = MELO_DIR / "dict"
 
-# 句间停顿（秒）——piper 输出 22050Hz，按采样数插入静音
+# piper（初版音色）
+PIPER_MODEL = MODELS_DIR / "zh_CN-huayan-medium.onnx"
+PIPER_CONFIG = MODELS_DIR / "zh_CN-huayan-medium.onnx.json"
+
+_backend = None  # ("melo", handle) / ("piper", handle)
+
+# 句间停顿（秒）——按各后端采样率换算成静音帧
 SENTENCE_PAUSE_SEC = 0.22
 COMMA_PAUSE_SEC = 0.10
 # 单句超过该字符数时按逗号二次切分
@@ -100,7 +112,7 @@ def split_sentences(text: str) -> list:
     text = normalize_for_tts(text)
     if not text:
         return []
-    rough = re.split(r"(?<=[。！？；])", text)
+    rough = re.split(r"(?<=[。！？；：])", text)
     result = []
     for chunk in rough:
         chunk = chunk.strip().lstrip("，、；：")
@@ -119,26 +131,63 @@ def split_sentences(text: str) -> list:
     return result
 
 
-def _load():
-    global _voice
-    if _voice is not None:
-        return _voice
+# ── 后端：MeloTTS（sherpa-onnx）────────────────────────────────────
+
+def _melo_available() -> bool:
+    return MELO_MODEL.exists() and MELO_TOKENS.exists() and MELO_LEXICON.exists()
+
+
+def _load_melo():
+    import sherpa_onnx
+
+    # int8 量化版优先（CPU 上速度约 2 倍，质量损失可忽略）
+    model = MELO_DIR / "model.int8.onnx"
+    if not model.exists():
+        model = MELO_MODEL
+    # rule_fsts：数字/日期/电话/多音字的文本规范化规则（模型目录自带）
+    rule_fsts = ",".join(
+        str(p) for p in (
+            MELO_DIR / "number.fst",
+            MELO_DIR / "date.fst",
+            MELO_DIR / "new_heteronym.fst",
+            MELO_DIR / "phone.fst",
+        ) if p.exists()
+    )
+    vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+        model=str(model),
+        lexicon=str(MELO_LEXICON),
+        tokens=str(MELO_TOKENS),
+        dict_dir=str(MELO_DICT) if MELO_DICT.is_dir() else "",
+    )
+    model_config = sherpa_onnx.OfflineTtsModelConfig(vits=vits)
+    config = sherpa_onnx.OfflineTtsConfig(model=model_config, rule_fsts=rule_fsts)
+    return sherpa_onnx.OfflineTts(config)
+
+
+def _melo_synthesize_one(tts, text: str, speed: float) -> tuple:
+    """单句合成，返回 (采样率, int16 samples bytes, 声宽=2, 声道=1)。"""
+    import numpy as np
+
+    audio = tts.generate(text, sid=0, speed=max(0.5, min(2.0, speed)))
+    pcm = (np.clip(np.asarray(audio.samples), -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    return audio.sample_rate, pcm, 2, 1
+
+
+# ── 后端：piper（初版音色，回退用）──────────────────────────────────
+
+def _piper_available() -> bool:
+    return PIPER_MODEL.exists() and PIPER_CONFIG.exists()
+
+
+def _load_piper():
     from piper import PiperVoice
 
-    _voice = PiperVoice.load(str(MODEL), config_path=str(CONFIG))
-    return _voice
+    return PiperVoice.load(str(PIPER_MODEL), config_path=str(PIPER_CONFIG))
 
 
-def is_available() -> bool:
-    """模型文件是否已下载。"""
-    return MODEL.exists() and CONFIG.exists()
-
-
-def _synthesize_one(text: str, speed: float) -> tuple:
-    """单句合成，返回 (采样率, samples bytes, 声宽, 声道)。"""
+def _piper_synthesize_one(voice, text: str, speed: float) -> tuple:
     from piper.config import SynthesisConfig
 
-    voice = _load()
     length_scale = 1.0 / max(0.5, min(2.0, speed))
     syn_config = SynthesisConfig(length_scale=length_scale)
     buf = io.BytesIO()
@@ -154,8 +203,30 @@ def _synthesize_one(text: str, speed: float) -> tuple:
         )
 
 
+# ── 对外接口 ───────────────────────────────────────────────────────
+
+def get_backend() -> tuple:
+    """惰性选择并缓存合成后端，返回 (名称, 句级合成函数)。"""
+    global _backend
+    if _backend is not None:
+        return _backend
+    if _melo_available():
+        _backend = ("melo", lambda text, speed: _melo_synthesize_one(_load_melo(), text, speed))
+    elif _piper_available():
+        _backend = ("piper", lambda text, speed: _piper_synthesize_one(_load_piper(), text, speed))
+    else:
+        raise RuntimeError("没有任何可用的 TTS 模型（MeloTTS / piper 均未下载）")
+    return _backend
+
+
+def is_available() -> bool:
+    """是否有任一 TTS 后端可用。"""
+    return _melo_available() or _piper_available()
+
+
 def synthesize(text: str, speed: float = 0.9) -> bytes:
     """文本 -> wav 字节：切句逐段合成，按标点插入停顿后拼接。"""
+    _, synth_one = get_backend()
     pieces = split_sentences(text)
     if not pieces:
         return b""
@@ -163,12 +234,12 @@ def synthesize(text: str, speed: float = 0.9) -> bytes:
     rate = width = channels = None
     body = io.BytesIO()
     for sentence, pause in pieces:
-        seg_rate, frames, seg_width, seg_channels = _synthesize_one(sentence, speed)
+        seg_rate, frames, seg_width, seg_channels = synth_one(sentence, speed)
         if rate is None:
             rate, width, channels = seg_rate, seg_width, seg_channels
         body.write(frames)
         if pause > 0:
-            body.write(b"\x00" * int(seg_rate * pause) * seg_width * seg_channels)
+            body.write(b"\x00" * (int(seg_rate * pause) * seg_width * seg_channels))
 
     out = io.BytesIO()
     with wave.open(out, "wb") as w:
