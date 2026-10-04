@@ -38,9 +38,9 @@ backend/data/
 # 嵌入向量缓存（本地生成，不入库）
 .cache/
 
-# 语音本地模型（约 300MB，由 voice_service/download_models.py 下载，不入库）
-voice_service/models/asr/*
-voice_service/models/tts/*
+# 语音本地模型（约 680MB，由 voice_service/download_models.py 下载，不入库）
+# 覆盖 models/ 下全部引擎目录（asr / tts / kokoro-* / vits-* 等），避免误提交大文件
+voice_service/models/*
 !voice_service/models/.gitkeep
 !voice_service/models/README.md
 

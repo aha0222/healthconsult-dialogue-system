@@ -12,7 +12,15 @@ powershell -ExecutionPolicy Bypass -File scripts\offline\fetch_model.ps1
 
 # 一条命令冷启动（之后拔网线也能跑）
 powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1
+
+# 有 N 卡想快 50 倍：加 -Gpu（bin-cuda 引擎 + 7B 模型，默认端口 8090）
+powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1 -Gpu
 ```
+
+`-Gpu` 挑 `bin-cuda\llama-server.exe` 与 `models-7b\` 的 7B 模型（分片 GGUF 自动加载第二片），
+全部层上显存、KV 缓存量化 q8_0——8GB 显存实测占用约 7.0GB，单轮完整问答从 CPU 档的数分钟
+降到约 8 秒。缺 GPU 引擎或 7B 模型时自动退回 CPU 档并提示。启动后看 `logs\llama.err.log`
+出现 `offloaded 29/29 layers to GPU`，即确认没有被静默回退到 CPU。
 
 浏览器会自动打开 `frontend/chat.html`，后端在 `http://127.0.0.1:8000`。
 Ctrl+C 退出；收尾不干净时跑 `stop.ps1`。

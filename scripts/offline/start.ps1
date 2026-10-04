@@ -22,9 +22,15 @@
 .PARAMETER Check
     起来之前先跑一遍 tools\offline_check.py 自检。
 
+.PARAMETER Gpu
+    用 GPU 档引擎（bin-cuda\llama-server.exe）与 7B 模型（models-7b\），
+    全部层上显存、KV 缓存量化 q8_0，单轮问答从 CPU 档的数分钟降到约 8 秒。
+    不给则沿用 CPU 档（bin\ + models\ 里最大的 GGUF）。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1
-    powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1 -Check
+    powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1 -Gpu
+    powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1 -Check -Gpu
 #>
 [CmdletBinding()]
 param(
@@ -32,6 +38,7 @@ param(
     [int]$BackendPort = 8000,
     [switch]$NoBrowser,
     [switch]$Check,
+    [switch]$Gpu,
     [string]$Python = ""
 )
 
@@ -155,7 +162,8 @@ function Test-PortFree([int]$p) {
 }
 
 if ($Port -eq 0) {
-    $Port = 8080
+    # GPU 档默认 8090：与前端/文档里记的离线端点一致，也避开常见的 8080 占用
+    $Port = if ($Gpu) { 8090 } else { 8080 }
     while (-not (Test-PortFree $Port)) {
         Write-Warn2 "端口 $Port 已被占用，试下一个。"
         $Port++
@@ -167,17 +175,43 @@ if ($Port -eq 0) {
 $Endpoint = "http://127.0.0.1:$Port"
 
 # ── 3. 找 llama-server 与模型 ─────────────────────────────────────────
-$serverExe = Join-Path $OfflineDir "bin\llama-server.exe"
+# GPU 档优先用 bin-cuda\ 引擎与 models-7b\ 的 7B 模型；缺失则退回 CPU 档并提示。
+$engineDir = if ($Gpu) { "bin-cuda" } else { "bin" }
+$modelDir  = if ($Gpu) { "models-7b" } else { "models" }
+
+$serverExe = Join-Path $OfflineDir "$engineDir\llama-server.exe"
 if (-not (Test-Path $serverExe)) {
-    $cmd = Get-Command llama-server -ErrorAction SilentlyContinue
-    if ($cmd) { $serverExe = $cmd.Source } else { $serverExe = $null }
+    if ($Gpu) {
+        Write-Warn2 "找不到 $engineDir\llama-server.exe，退回 CPU 档引擎（bin\）。"
+        Write-Warn2 "GPU 引擎可用 download_cudart.py 补齐运行时后重试。"
+        $engineDir = "bin"
+        $serverExe = Join-Path $OfflineDir "bin\llama-server.exe"
+    }
+    if (-not (Test-Path $serverExe)) {
+        $cmd = Get-Command llama-server -ErrorAction SilentlyContinue
+        if ($cmd) { $serverExe = $cmd.Source } else { $serverExe = $null }
+    }
 }
 
 $modelPath = $cfg["OFFLINE_LLM_MODEL_PATH"]
 if (-not $modelPath) {
-    $found = Get-ChildItem (Join-Path $OfflineDir "models") -Filter *.gguf -ErrorAction SilentlyContinue |
-             Sort-Object Length -Descending | Select-Object -First 1
+    $found = $null
+    if ($Gpu) {
+        # 7B 是分片 GGUF：必须传第一片（-00001-of-…），后续分片由 llama.cpp 自动加载
+        $found = Get-ChildItem (Join-Path $OfflineDir $modelDir) -Filter "*-00001-of-*.gguf" -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+    }
+    if (-not $found) {
+        $found = Get-ChildItem (Join-Path $OfflineDir $modelDir) -Filter *.gguf -ErrorAction SilentlyContinue |
+                 Sort-Object Length -Descending | Select-Object -First 1
+    }
     if ($found) { $modelPath = $found.FullName }
+    if ($Gpu -and -not $found) {
+        Write-Warn2 "models-7b\ 里没有 GGUF 模型，退回 models\。"
+        $found = Get-ChildItem (Join-Path $OfflineDir "models") -Filter *.gguf -ErrorAction SilentlyContinue |
+                 Sort-Object Length -Descending | Select-Object -First 1
+        if ($found) { $modelPath = $found.FullName }
+    }
 }
 
 $llamaProcess = $null
@@ -221,6 +255,10 @@ if (-not $serverExe -or -not $modelPath -or -not (Test-Path $modelPath)) {
             "--parallel", "1",
             "--jinja"
         )
+        if ($Gpu) {
+            # 全部层上显存 + KV 缓存量化到 q8_0，8GB 显存够放 7B + 16k 上下文
+            $llamaArgs += @("-ngl", "99", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0")
+        }
         # 不加 --no-mmap：mmap 启动更快，内存交给系统缓存
 
         $outLog = Join-Path $LogDir "llama.out.log"
