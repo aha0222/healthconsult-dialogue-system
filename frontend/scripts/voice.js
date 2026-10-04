@@ -283,21 +283,25 @@
     var first = cut > 0 ? clean.slice(0, cut) : clean;
     var rest = cut > 0 ? clean.slice(cut) : "";
 
+    /* rest 的合成（~6s）常慢于首句播放（~2.4s）：把 Promise 存下来，
+       onended 时等待它就绪再接播，而不是放弃。 */
+    var restPromise = rest ? requestTts(rest) : Promise.resolve(null);
+
     return requestTts(first).then(function (audio) {
       if (!audio) return false;
       currentPlayer = audio;
-      if (rest) {
-        requestTts(rest).then(function (a2) { nextPlayer = a2; })
-          .catch(function () { nextPlayer = null; });
-        audio.onended = function () {
-          URL.revokeObjectURL(audio.src);
-          if (nextPlayer) {
-            currentPlayer = nextPlayer;
-            nextPlayer.play().catch(function () { /* ignore */ });
-            nextPlayer = null;
+      audio.onended = function () {
+        URL.revokeObjectURL(audio.src);
+        restPromise.then(function (a2) {
+          if (!a2) {
+            currentPlayer = null;
+            return;
           }
-        };
-      }
+          currentPlayer = a2;
+          a2.onended = function () { URL.revokeObjectURL(a2.src); };
+          a2.play().catch(function () { /* ignore */ });
+        }).catch(function () { currentPlayer = null; });
+      };
       audio.play().catch(function () { /* ignore */ });
       return true;
     }).catch(function () {
