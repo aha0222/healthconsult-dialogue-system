@@ -172,6 +172,10 @@ def _load_kokoro_torch():
 
     # 模型缓存在本机 HF cache；镜像用于首次下载
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
+    from . import pronunciation
+
+    pronunciation.apply()  # 多音字/助词读音修正（须在首次合成前注入 pypinyin）
     from kokoro import KPipeline
 
     import torch
