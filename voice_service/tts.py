@@ -23,9 +23,25 @@ from pathlib import Path
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 
+# Kokoro torch GPU（82M，5060 实测实时率 0.032x，首选）
+KOKORO_TORCH_LANG = "z"
+KOKORO_TORCH_VOICE = "zf_xiaoxiao"
+KOKORO_TORCH_REPO = "hexgrad/Kokoro-82M"
+
+# Kokoro（sherpa-onnx，82M int8，中英混，速度快于实时，首选）
+KOKORO_DIR = MODELS_DIR / "kokoro-int8-multi-lang-v1_1"
+KOKORO_MODEL = KOKORO_DIR / "model.int8.onnx"
+KOKORO_VOICES = KOKORO_DIR / "voices.bin"
+KOKORO_TOKENS = KOKORO_DIR / "tokens.txt"
+KOKORO_DATA = KOKORO_DIR / "espeak-ng-data"
+KOKORO_DICT = KOKORO_DIR / "dict"
+# 中文音色（zf_001）在多语言声音表中的 sid；0 起是英文音色
+KOKORO_SID_ZH = 50
+
 # MeloTTS（sherpa-onnx vits）
 MELO_DIR = MODELS_DIR / "vits-melo-tts-zh_en"
 MELO_MODEL = MELO_DIR / "model.onnx"
+MELO_MODEL_INT8 = MELO_DIR / "model.int8.onnx"
 MELO_LEXICON = MELO_DIR / "lexicon.txt"
 MELO_TOKENS = MELO_DIR / "tokens.txt"
 MELO_DICT = MELO_DIR / "dict"
@@ -131,6 +147,79 @@ def split_sentences(text: str) -> list:
     return result
 
 
+# ── 后端：Kokoro torch GPU（首选，5060 实时率 0.03x）────────────────
+
+_kokoro_torch_pipe = None
+
+
+def _kokoro_torch_available() -> bool:
+    try:
+        import torch  # noqa: F401
+        from kokoro import KPipeline  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _load_kokoro_torch():
+    import os
+
+    # 模型缓存在本机 HF cache；镜像用于首次下载
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+    from kokoro import KPipeline
+
+    return KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO)
+
+
+def _kokoro_torch_synthesize(pipe, text: str, speed: float) -> tuple:
+    """整段交给 KPipeline（内部按句切分），返回 (24000, int16 bytes, 2, 1)。"""
+    import numpy as np
+
+    chunks = list(pipe(text, voice=KOKORO_TORCH_VOICE, speed=max(0.5, min(2.0, speed))))
+    audios = [c.audio.numpy() for c in chunks if c.audio is not None]
+    if not audios:
+        return 24000, b"", 2, 1
+    pcm = (np.clip(np.concatenate(audios), -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    return 24000, pcm, 2, 1
+
+
+# ── 后端：Kokoro（sherpa-onnx，82M int8，首选）──────────────────────
+
+def _kokoro_available() -> bool:
+    return KOKORO_MODEL.exists() and KOKORO_VOICES.exists() and KOKORO_TOKENS.exists()
+
+
+def _load_kokoro():
+    import sherpa_onnx
+
+    lexicons = ",".join(
+        str(p) for p in (
+            KOKORO_DIR / "lexicon-zh.txt",
+            KOKORO_DIR / "lexicon-us-en.txt",
+            KOKORO_DIR / "lexicon-gb-en.txt",
+        ) if p.exists()
+    )
+    kokoro = sherpa_onnx.OfflineTtsKokoroModelConfig(
+        model=str(KOKORO_MODEL),
+        voices=str(KOKORO_VOICES),
+        tokens=str(KOKORO_TOKENS),
+        lexicon=lexicons,
+        data_dir=str(KOKORO_DATA) if KOKORO_DATA.is_dir() else "",
+        dict_dir=str(KOKORO_DICT) if KOKORO_DICT.is_dir() else "",
+    )
+    model_config = sherpa_onnx.OfflineTtsModelConfig(kokoro=kokoro)
+    config = sherpa_onnx.OfflineTtsConfig(model=model_config)
+    return sherpa_onnx.OfflineTts(config)
+
+
+def _kokoro_synthesize_one(tts, text: str, speed: float) -> tuple:
+    import numpy as np
+
+    audio = tts.generate(text, sid=KOKORO_SID_ZH, speed=max(0.5, min(2.0, speed)))
+    pcm = (np.clip(np.asarray(audio.samples), -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    return audio.sample_rate, pcm, 2, 1
+
+
 # ── 后端：MeloTTS（sherpa-onnx）────────────────────────────────────
 
 def _melo_available() -> bool:
@@ -210,18 +299,23 @@ def get_backend() -> tuple:
     global _backend
     if _backend is not None:
         return _backend
-    if _melo_available():
+    if _kokoro_torch_available():
+        _backend = ("kokoro-gpu", lambda text, speed: _kokoro_torch_synthesize(
+            _load_kokoro_torch(), text, speed))
+    elif _kokoro_available():
+        _backend = ("kokoro", lambda text, speed: _kokoro_synthesize_one(_load_kokoro(), text, speed))
+    elif _melo_available():
         _backend = ("melo", lambda text, speed: _melo_synthesize_one(_load_melo(), text, speed))
     elif _piper_available():
         _backend = ("piper", lambda text, speed: _piper_synthesize_one(_load_piper(), text, speed))
     else:
-        raise RuntimeError("没有任何可用的 TTS 模型（MeloTTS / piper 均未下载）")
+        raise RuntimeError("没有任何可用的 TTS 模型（kokoro / MeloTTS / piper 均未下载）")
     return _backend
 
 
 def is_available() -> bool:
     """是否有任一 TTS 后端可用。"""
-    return _melo_available() or _piper_available()
+    return _kokoro_available() or _melo_available() or _piper_available()
 
 
 def synthesize(text: str, speed: float = 0.9) -> bytes:
