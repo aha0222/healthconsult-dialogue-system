@@ -14,6 +14,7 @@
 | `styles/components.css` | 通用组件：按钮、卡片、徽章、表单、弹窗、开关、加载点 |
 | `styles/chat.css` | 对话页布局 |
 | `styles/report.css` | 报告页布局 |
+| `scripts/voice.js` | 语音服务客户端（探活 voice_service、录音→/asr、/tts 播报可打断；服务不可用自动回退浏览器语音/打字） |
 | `scripts/chat.js` | 对话页逻辑（流式对话 / 会话 / 语音 / 适老化设置） |
 | `scripts/report.js` | 报告页渲染（读 `data/personality_evaluation.js`，不含硬编码评分） |
 | `assets/` | 优化后的 WebP 素材与图标 |

@@ -28,9 +28,19 @@ backend/
 │   │   ├── orchestrator.py   # 对话编排：组装 prompt -> LLM -> 解析 -> 兜底
 │   │   ├── memory.py         # 长会话滚动摘要 + 长期画像
 │   │   ├── routing.py        # 按风险选择模型
-│   │   ├── prompt.py         # SKILL.md 载入 + 人格覆盖 + 风险标签
+│   │   ├── prompt.py         # SKILL.md 载入 + 人格覆盖 + 说话人提示 + 相似样例
 │   │   ├── markers.py        # 场景标记解析 + 本地兜底分级
-│   │   └── llm_client.py     # OpenAI 兼容客户端封装
+│   │   ├── speaker.py        # 说话人角色识别（老人/家属，低置信回退 elder）
+│   │   ├── classifier.py     # 运行时场景/风险关键词快路径预判
+│   │   ├── retriever.py      # 相似语料检索（local/api/hash 三嵌入后端）
+│   │   ├── reranker.py       # 检索精排（向量 + n-gram + 关键词混合）
+│   │   ├── taxonomy.py       # 双维度标签体系单一事实源（24 场景 / 5 风险级）
+│   │   ├── corpus/           # 检索用标注语料投影（1816 条）
+│   │   └── llm_client.py     # OpenAI 兼容云端客户端封装
+│   ├── providers/
+│   │   ├── __init__.py       # get_llm()：按 OFFLINE_MODE 返回云端/本地 LLM
+│   │   ├── local_llm.py      # 本地 LLM（端点优先 + 进程内回退，绝不回退云端）
+│   │   └── embedding.py      # 严格嵌入构造（缺依赖抛错，不静默降级）
 │   └── safety/
 │       ├── safety_checker.py    # 运行时关键词快检 + 数据质检核心
 │       └── semantic_checker.py  # 高风险 LLM 语义复核
@@ -70,6 +80,9 @@ python -m venv .venv
 | `DEEPSEEK_BASE_URL` | 兼容 OpenAI 的接口地址 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 模型名 | `deepseek-flash` |
 | `CORS_ORIGINS` | 允许的前端来源，逗号分隔（请显式列出） | `http://127.0.0.1:8000,http://localhost:8000,null` |
+| `VOICE_ENABLED` | 启用语音服务开关（前端探活 voice_service，未启动自动回退） | `0` |
+| `OFFLINE_MODE` | LLM 切换为本地/私有端点（细项见 `scripts/offline/.env.offline.example`） | `0` |
+| `SPEAKER_DETECT_ENABLED` | 说话人角色识别（关闭时恒按老人处理） | `0` |
 | `MAX_HISTORY` | 携带的历史消息条数上限 | `10` |
 | `DB_PATH` | SQLite 数据库文件路径 | `backend/data/sessions.db` |
 | `XIAONUAN_REPO_ROOT` | 非标准部署时覆盖仓库根目录（可选） | 按文件层级自动推导 |
@@ -168,6 +181,10 @@ set BACKEND_API_KEY=your-secret
 
 ### `POST /api/chat`
 
+请求可选字段 `speaker_role`（`elder`/`family`）：显式声明说话人角色，仅在 `SPEAKER_DETECT_ENABLED=1`
+时生效（缺省由后端按消息内容启发式识别，低置信回退 `elder`）；响应新增 `speaker_role` 字段。
+角色只影响称呼与内容侧重，不改变任何风险判定与安全红线。
+
 请求：
 
 ```json
@@ -250,6 +267,8 @@ set BACKEND_API_KEY=your-secret
 返回缓存开关与命中统计：`{enabled, size, hits, misses, max_size, ttl}`。
 
 ### `GET /api/health`
+
+响应含 `voice_enabled` / `speaker_detect_enabled` 能力开关（供前端探活决策）与 `config_warnings`。
 
 返回 `{ "status": "ok", "model": "...", "auth_enabled": false, "config_warnings": [] }`。出于信息最小化，不再返回 `has_api_key`；`config_warnings` 暴露非法配置等启动告警。此接口无需鉴权。
 

@@ -1,30 +1,37 @@
 # 小暖对话系统（healthconsult-dialogue-system）
 
-面向老年健康陪护的完整对话系统。系统由三部分组成：**前端**（用户界面）、**后端**（对话编排与安全兜底）、**skill**（可插拔的回复规范包）。
+面向老年健康陪护的完整对话系统。系统由五部分组成：**前端**（用户界面）、**后端**（对话编排与安全兜底）、**skill**（可插拔的回复规范包）、**语音服务**（本地离线 ASR/TTS）、**离线运行时**（本地大模型与一键部署包）。
 
-一句话：**前端负责呈现，后端负责对话，skill 负责"怎么答才安全"。**
+一句话：**前端负责呈现，后端负责对话，skill 负责"怎么答才安全"，语音与离线让系统离开云端也能用。**
 
 ---
 
 ## 系统架构
 
 ```
-┌───────────┐   HTTP    ┌──────────────────────┐   system prompt   ┌──────────────────────────────┐
-│  前端      │ ────────▶ │  后端 backend/        │ ───────────────▶  │  skill                        │
-│ frontend/ │ ◀──────── │  对话编排 + 安全检查   │ ◀───────────────  │  skills/healthconsult-...     │
-└───────────┘  回复+等级 └──────────────────────┘   LLM 回复+标记    │  SKILL.md / rules / examples  │
-                                                                    └──────────────────────────────┘
+┌───────────┐   HTTP/SSE ┌──────────────────────┐   system prompt   ┌──────────────────────────────┐
+│  前端      │ ──────────▶ │  后端 backend/        │ ───────────────▶  │  skill                        │
+│ frontend/ │ ◀────────── │  对话编排 + 三层安全    │ ◀───────────────  │  SKILL.md / rules / 语料 1725 │
+└─────┬─────┘  回复+等级   └──────────┬───────────┘   LLM 回复+标记    └──────────────────────────────┘
+      │ HTTP 直连 8100                │ get_llm()
+      ▼                               ▼
+┌───────────────┐            ┌────────────────────────────┐
+│ 语音服务       │            │ LLM：云端 DeepSeek          │
+│ voice_service/ │            │   或 本地离线（OFFLINE_MODE）│
+│ ASR/TTS/流式   │            │   llama.cpp / 任意私有端点  │
+└───────────────┘            └────────────────────────────┘
 ```
 
 一次对话的数据流：
 
-1. 前端把老人说的话发给后端。
-2. 后端把 skill 的 `SKILL.md` 作为 system prompt，调用 LLM。
-3. LLM 生成回复，并在末尾附带双维度标签（如 `[RISK:R1]` + `[SCENE:S3]`）。
-4. 后端剥离标记，并用 `safety_checker` 做一次兜底快检。
-5. 后端把「回复正文 + 风险等级 + 场景类别」返回前端展示。
+1. 前端把老人说的话发给后端（说话人识别自动区分「老人本人 / 家属」，仅调整称呼与侧重）。
+2. 后端先用关键词快路径预判风险/场景（0 token），非高风险时检索相似语料注入 prompt。
+3. 后端把 skill 的 `SKILL.md` 作为 system prompt，调用 LLM（云端或本地）。
+4. LLM 生成回复，并在末尾附带双维度标签（如 `[RISK:R1]` + `[SCENE:S3]`）；小模型漏标时由本地关键词兜底。
+5. 后端剥离标记，`safety_checker` 硬红线快检，高风险再做 LLM 语义复核。
+6. 后端把「回复正文 + 风险等级 + 场景类别」返回前端展示；语音开启时前端把回复交给 voice_service 播报。
 
-更完整的说明见 `docs/architecture.md`。
+更完整的说明见 `docs/architecture.md`；离线交付细节见 `docs/offline_delivery_report.md`。
 
 ---
 
@@ -32,29 +39,34 @@
 
 | 路径 | 职责 | 状态 |
 |------|------|------|
-| `frontend/` | 网页界面（人格展示 + 在线对话 + TTS） | 可用 |
-| `backend/` | 对话系统后端：编排、安全检查、HTTP API | 可用 |
-| `skills/healthconsult-assistant-skill/` | 小暖回复规范包（纯规范，零 Python） | 可用 |
-| `tools/` | 离线数据工具：生成、清洗、质检、人格对比、线上采样、风险评测 | 可用 |
-| `tests/results/` | 历史测试结果 | 可用 |
-| `docs/` | 系统架构与设计文档 | 可用 |
-| `scripts/` | 一键运行脚本（`run.sh` / `run.ps1`） | 可用 |
-| `LICENSE` | MIT 开源许可 | 可用 |
-| `.github/workflows/ci.yml` | 自动测试配置 | 可用 |
+| `frontend/` | 网页界面（人格展示 + 在线对话 + 语音接线 `scripts/voice.js`） | 可用 |
+| `backend/` | 对话系统后端：编排、三层安全、HTTP API、SQLite 持久化 | 可用 |
+| `skills/healthconsult-assistant-skill/` | 小暖回复规范包（纯规范，零 Python；语料 v0.4.0 共 **1725 条 / 24 场景**） | 可用 |
+| `voice_service/` | 独立语音服务：本地 ASR（Paraformer）+ TTS（Piper）+ 流式/打断，默认 8100 端口 | 可用 |
+| `backend/app/providers/` + `scripts/offline/` | 离线运行时：本地 LLM（llama.cpp 端点优先）+ 一键冷启动/打包/拔网线自检 | 可用 |
+| `tools/` | 离线数据工具：语料生成、清洗、质检、分布验收、人格评测、离线自检 | 可用 |
+| `backend/tests/` | 后端测试 + **54 例红队安全回归集**（CI 常驻） | 可用 |
+| `docs/` | 系统架构、语料建设报告、离线交付报告、人格评测报告 | 可用 |
+| `scripts/` | 一键运行脚本（`run.sh` / `run.ps1`）+ `offline/`（离线包） | 可用 |
 
-**skill 与系统相互独立**：`skills/` 里只有规范、规则、示例数据，不含任何 Python 代码；前端、后端、工具都可以替换，skill 本身保持可复用。
+**skill 与系统相互独立**：`skills/` 里只有规范、规则、示例数据，不含任何可执行代码；前端、后端、工具都可以替换，skill 本身保持可复用。
+
+**能力开关（默认全关 = 与上一阶段行为完全一致）**：
+
+| 开关 | 默认 | 作用 |
+|------|------|------|
+| `VOICE_ENABLED` | 0 | 启用语音服务（前端探活 voice_service，不可用自动回退打字版） |
+| `OFFLINE_MODE` | 0 | LLM 换成本地/私有端点（`get_llm()` 自动切换，绝不回退云端） |
+| `SPEAKER_DETECT_ENABLED` | 0 | 说话人识别（区分老人/家属，低置信一律按老人处理） |
 
 ---
 
 ## 环境要求
 
 - **Python 3.10+**（推荐 3.12）：后端与 tools 需要
-- **Ubuntu / Debian**：需先装 venv 支持：`sudo apt update && sudo apt install -y python3-venv`
 - **现代浏览器**（Chrome / Edge）：前端需要
-- 想真调用大模型，需要一个兼容 OpenAI 接口的 API Key（如 DeepSeek）
-
-> 下面的命令都要在**克隆下来的仓库根目录**执行（即能看到 `backend/`、`tools/`、`frontend/` 的目录），
-> 否则会报 `Could not open requirements file`。
+- 云端模式需要一个兼容 OpenAI 接口的 API Key（如 DeepSeek）
+- 语音服务：约 300MB 本地模型（脚本自动下载）；**离线 LLM**：约 2GB（CPU 慢，见下文 GPU 建议）
 
 ---
 
@@ -67,9 +79,7 @@ git clone https://github.com/aha0222/healthconsult-dialogue-system.git
 cd healthconsult-dialogue-system
 ```
 
-也可以直接在 GitHub 页面点 **Code → Download ZIP** 解压。
-
-### 一键运行后端（推荐）
+### 一键运行后端（云端模式，推荐）
 
 ```bash
 # macOS / Linux（在仓库根目录执行）
@@ -86,9 +96,31 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1
 然后浏览器打开 `frontend/chat.html`，在设置里确认后端地址。
 
 - 只准备环境、不启动：`--setup-only`（PowerShell 用 `-SetupOnly`）。
-- 改端口 / 监听地址：`--port 8080`、`--host 0.0.0.0`（PowerShell 用 `-Port`、`-ListenHost`）。
+- 改端口 / 监听地址：`--port 8080`、`--host 0.0.0.0`。
 
-> **别人运行本项目，必须自备一个 `DEEPSEEK_API_KEY`**（仓库不包含任何密钥）。
+> 别人运行本项目，必须自备一个 `DEEPSEEK_API_KEY`（仓库不包含任何密钥）。
+
+### 启用语音（本地离线，可选）
+
+```powershell
+python -m pip install -r voice_service\requirements.txt   # sherpa-onnx / piper-tts 等
+python voice_service\download_models.py                   # 下载约 300MB 本地模型（国内源）
+python -m voice_service                                    # 默认 http://127.0.0.1:8100
+```
+
+浏览器打开 `voice_service/demo.html` 自测录音识别与合成；在 `.env` 设 `VOICE_ENABLED=1` 后，前端对话页的麦克风/播报即走本地语音服务（服务未启动时自动回退浏览器语音或打字）。
+
+### 离线模式（可选：不要云端 Key 也能跑）
+
+离线档细项见 `scripts/offline/.env.offline.example` 与 `scripts/offline/收件人操作单.md`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\offline\fetch_model.ps1    # 下载推理引擎 + Qwen2.5-3B（约 2GB）
+powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1          # 一条命令冷启动（llama-server + 后端）
+python tools\offline_check.py                                              # 拔网线自检（11 项）
+```
+
+**GPU 提速实测（RTX 5060 8GB / Qwen2.5-7B Q4）**：一轮完整问答（含 5775 token 预填充与全等级语义复核）从 CPU 的 414 秒降到 **7.9 秒**，标签输出率 0/4 → 4/4。CUDA 版引擎需补 `python scripts/offline/download_cudart.py`（缺失时 CUDA 后端会**静默回退 CPU**，显存占用极低是判断特征）。机器人落地建议 8GB 级以上 GPU；更大模型走"机器人瘦终端 + 局域网 LLM 服务器"（`OFFLINE_LLM_ENDPOINT` 指过去，代码零改动）。
 
 ### 只想预览界面（零安装）
 
@@ -96,9 +128,9 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1
 `chat.html` 里填的是**后端访问密钥**（`BACKEND_API_KEY`，由部署方提供），只保存在本机浏览器；
 **大模型 API Key（`DEEPSEEK_API_KEY`）始终保存在服务端环境变量中，浏览器不接触**。
 
-### 跑 skill 工具与测试
+### 跑测试与工具
 
-> 测试会 `import backend.app...`，必须安装 `backend/requirements.txt`（含 fastapi / httpx 等）；
+> 后端测试会 `import backend.app...`，必须安装 `backend/requirements.txt`；
 > `tools/requirements.txt` 只覆盖离线脚本，单独安装后跑后端测试会 ImportError。
 
 ```powershell
@@ -106,23 +138,25 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 .\.venv\Scripts\python.exe -m pip install -r tools/requirements.txt
-.\.venv\Scripts\python.exe -m pytest backend/tests -v
+.\.venv\Scripts\python.exe -m pytest -q          # 后端 + 语音契约测试（共 348 项）
 ```
 
 ```bash
 # macOS / Linux（在仓库根目录执行）
-# Ubuntu / Debian 若报 ensurepip is not available，先装：sudo apt install -y python3-venv
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r backend/requirements.txt
-python -m pip install -r tools/requirements.txt
-python -m pytest backend/tests -v
+python3 -m venv .venv && source .venv/bin/activate
+python -m pip install -r backend/requirements.txt -r tools/requirements.txt
+python -m pytest -q
 ```
 
-### 质检 skill 数据
+CI（`.github/workflows/ci.yml`）每次推送自动执行：ruff → 后端全量测试（覆盖率 ≥75%）→ 语音契约测试 → 风险分级基线 → 语料 v0.4.0 质检。
+
+### 质检 / 验收语料
 
 ```powershell
-.\.venv\Scripts\python.exe tools/validate_outputs.py --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl --mode generated_sft
+# 质检主语料（1725 条，应无 fatal）
+.\.venv\Scripts\python.exe tools\validate_outputs.py --input skills\healthconsult-assistant-skill\examples\corpus\v0.4.0_corpus_expanded.jsonl --mode generated_sft
+# 分布验收（61 个场景×风险格子、重复率、篇幅、安全）
+.\.venv\Scripts\python.exe tools\check_distribution.py --input skills\healthconsult-assistant-skill\examples\corpus\v0.4.0_corpus_expanded.jsonl
 ```
 
 ### 复现人格选型评测
@@ -130,45 +164,29 @@ python -m pytest backend/tests -v
 四版人格的默认人格选型见 `docs/personality_evaluation_report.md`：用「大模型绝对打分 + 人工抽检 + 场景内强制排序」三种独立方法交叉验证，结论只取跨方法一致的部分。
 
 ```powershell
-# 1. 生成回复（43 场景 × 4 人格 × 2 次 = 344 条）
-.\.venv\Scripts\python.exe tools\generate_personality_responses.py --runs 2 --workers 5
-# 2. 大模型逐条盲评（提示词不含人格名）
-.\.venv\Scripts\python.exe tools\score_replies.py --workers 5
-# 3. 统计与显著性检验（纯标准库，可离线跑）
-.\.venv\Scripts\python.exe tools\analyze_scores.py
-# 4. 场景内强制排序（标签随机分配）
-.\.venv\Scripts\python.exe tools\rank_personas.py --workers 5
-# 5. 导出前端报告数据（纯离线，读 tests/results/）
-.\.venv\Scripts\python.exe tools\export_persona_report_data.py
+.\.venv\Scripts\python.exe tools\generate_personality_responses.py --runs 2 --workers 5   # 生成 344 条
+.\.venv\Scripts\python.exe tools\score_replies.py --workers 5                             # 大模型盲评
+.\.venv\Scripts\python.exe tools\analyze_scores.py                                        # 统计检验
+.\.venv\Scripts\python.exe tools\rank_personas.py --workers 5                             # 场景内强制排序
+.\.venv\Scripts\python.exe tools\export_persona_report_data.py                            # 导出前端报告数据
 ```
 
 第 1/2/4 步会真实调用大模型，需要 `DEEPSEEK_API_KEY`。原始数据在 `tests/results/`，
 人工评审材料在 `skills/healthconsult-assistant-skill/examples/manual_review/`。
-第 5 步生成的 `frontend/data/personality_evaluation.js` 供 `frontend/index.html` 读取，
-页面本身不含硬编码评分。改完人格或重跑评测后，重跑第 5 步即可刷新页面。
-旧版 9 场景星级对比（`skills/healthconsult-assistant-skill/docs/personality_test_report.md`）
-为初版方法，已被上述评测取代，仅作方法演进对照保留。
 
-### 手动启动后端（不用脚本）
+---
 
-后端把 `SKILL.md` 作为 system prompt 调用 LLM，解析场景标记并做安全兜底，供前端调用。支持 SSE 流式、SQLite 会话/审计持久化、API Key 鉴权、按 IP 限流与结构化日志。
-需先按「跑 skill 工具与测试」安装好虚拟环境与依赖。
+## 三层安全（任何模型、任何开关状态下都不放松）
 
-```powershell
-# Windows
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-Copy-Item .env.example .env    # 按需修改
-.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
-```
+| 层级 | 方式 | 成本 | 作用 |
+|------|------|------|------|
+| 第一层 | `SKILL.md` 作为系统指令 | 0 | LLM 自主定风险等级 + 打场景标签，绝大多数安全问题在此解决 |
+| 第二层 | 本地关键词红线快检（`safety_checker`） | <1ms | 开药调药、怂恿开门、轻视心理危机等硬红线，命中即替换安全话术；小模型漏标时的定级兜底 |
+| 第三层 | LLM 语义复核（默认 R3/R2b，离线档全等级） | 一次 LLM 调用 | 抓关键词漏掉的换说法越界 |
 
-```bash
-# macOS / Linux
-pip install -r backend/requirements.txt
-cp .env.example .env           # 按需修改
-python -m uvicorn backend.app.main:app --reload --port 8000
-```
-
-接口与全部配置见 `backend/README.md`。
+- 红队回归集 `backend/tests/redline_cases.jsonl`（**54 例**）随 CI 执行；**新增安全规则必须补用例**。
+- 高危命中写审计与告警（可配 webhook）；说话人角色**不改变任何风险判定**——家属问"能不能加药"与老人自问，红线一致。
+- 离线档实测闭环：本地模型漏标 → 关键词兜底判 R2b/E1 → 语义复核触发 → 替换预置安全话术。
 
 ---
 
@@ -185,8 +203,6 @@ python -m uvicorn backend.app.main:app --reload --port 8000
 ## 相关仓库
 
 - 旧版 skill 独立仓库（已归档，不再维护）：https://github.com/aha0222/healthconsult-assistant-skill
-
----
 
 ## 参考
 

@@ -19,14 +19,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements-dev.txt
           python -m pip install -r tools/requirements.txt
+          # 语音契约测试零模型依赖（未下载模型时走 501 回退分支），仅需 numpy
+          python -m pip install numpy
 
       - name: Lint (ruff)
-        run: python -m ruff check backend tools
+        run: python -m ruff check backend tools voice_service
 
       - name: Backend tests (safety checker + orchestrator + API + redline cases + persona evaluation)
         run: >-
           python -m pytest backend/tests -q
           --cov=backend.app --cov-report=term-missing --cov-fail-under=75
+
+      - name: Voice service contract tests (models absent -> 501 fallback path)
+        run: python -m pytest voice_service/tests -q
 
       - name: Risk classification baseline (stratified)
         run: >-
@@ -35,8 +40,8 @@ jobs:
           --min-risk-accuracy R3:0.9,R2b:0.9
           --min-scene-f1 0.7
 
-      - name: Strict validation of skill dataset
+      - name: Strict validation of skill dataset (v0.4.0 expanded corpus)
         run: >-
           python tools/validate_outputs.py
-          --input skills/healthconsult-assistant-skill/examples/v0.2.3_health_safety_repair.jsonl
+          --input skills/healthconsult-assistant-skill/examples/corpus/v0.4.0_corpus_expanded.jsonl
           --mode generated_sft
