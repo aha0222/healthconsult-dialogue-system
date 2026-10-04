@@ -347,6 +347,37 @@ def has_english_residual(text):
     return any(p.lower() in text.lower() for p in ENGLISH_RESIDUAL_TERMS)
 
 
+# 既往病史/康复期表述：中风后、脑梗过、心梗康复、摔倒后的后遗症描述……
+# 属于康复照护场景，不是正在发生的急症。实测教训：「我爸中风后半边不利索，
+# 居家该怎么改造」被「中风」一刀切判成 R3 急症并整体替换为 120 兜底话术。
+# 判定急症前先把这类表述连同同句后续内容改写掉；「中风了，现在叫不醒」这类
+# 现症不含"后/过/康复"等标记，不受影响。
+_PAST_EVENT_RE = re.compile(
+    r"(?:中风|脑梗|心梗|卒中|骨折|摔倒|跌倒)(?:后|过|之后|康复|恢复|的(?:史|病史))[^，。！？\n]*"
+    r"|(?:有|得过|患过|得了)(?:中风|脑梗|心梗|卒中)(?:史|病史)?[^，。！？\n]*"
+)
+
+
+# 匹配段内出现这些现症词时不清洗（如「脑梗过的老人突然晕倒了」——晕倒是新发现症，
+# 不能因病史前缀而被吞掉）。
+_PAST_KEEP_WORDS = (
+    "晕倒", "晕厥", "叫不醒", "意识不清", "说胡话", "抽搐", "昏迷",
+    "不省人事", "大出血", "血流不止", "吐血", "咳血", "噎", "呛住", "昏过去",
+)
+
+
+def strip_past_events(text: str) -> str:
+    """把既往病史/康复期表述改写为「既往病史」，排除历史语境对急症判定的干扰。"""
+
+    def _sub(match: "re.Match") -> str:
+        segment = match.group(0)
+        if _contains_any(segment, _PAST_KEEP_WORDS):
+            return segment
+        return "既往病史"
+
+    return _PAST_EVENT_RE.sub(_sub, text or "")
+
+
 def detect_scenes(text):
     """本地场景关键词识别，按优先级返回场景代码列表（最多 MAX_SCENES 个）。"""
     text = text or ""
@@ -355,8 +386,14 @@ def detect_scenes(text):
         keywords = _S1_KEYWORDS if scene == "S1" else SCENE_KEYWORDS.get(scene, [])
         if keywords and _contains_any(text, keywords):
             found.append(scene)
+    # 既往病史/康复期语境排除：若清除历史表述后不再命中 E1 关键词
+    # （也无极端紧急正则），则「中风」等词只是病史，撤回 E1 判定。
+    if "E1" in found:
+        cleaned = strip_past_events(text)
+        if cleaned != text and not _contains_any(cleaned, SCENE_KEYWORDS["E1"])                 and not is_critical_emergency(cleaned):
+            found.remove("E1")
     # 极端紧急表述：命中即确保 E1 在最前，避免被泛化场景淹没
-    if "E1" not in found and is_critical_emergency(text):
+    if "E1" not in found and is_critical_emergency(strip_past_events(text)):
         found.insert(0, "E1")
     # 场景归并：更具体的紧急/危机场景吸收一般场景，避免重复标注
     if "E1" in found and "S1" in found:

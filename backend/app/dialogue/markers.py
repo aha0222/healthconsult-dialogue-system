@@ -6,7 +6,7 @@ LLM 正常会在回复末尾输出 `[RISK:Rx]` 与若干 `[SCENE:xx]`；本模�
 
 import re
 
-from ..safety.safety_checker import detect_scenes, is_critical_emergency
+from ..safety.safety_checker import detect_scenes, strip_past_events, is_critical_emergency
 from .taxonomy import (
     MAX_SCENES,
     extract_tags,
@@ -45,12 +45,17 @@ def _contains_any(text: str, keywords) -> bool:
 
 
 def _is_emergency(text: str) -> bool:
-    """是否属于需要立即 120 的极高危急症（区别于 R2b 的紧急就医）。"""
-    if _contains_any(text, _R3_KEYWORDS):
+    """是否属于需要立即 120 的极高危急症（区别于 R2b 的紧急就医）。
+
+    先剥离既往病史/康复期表述（中风后、脑梗过……），避免「我爸中风后半边
+    不利索」这类康复咨询被「中风/半边」一刀切判成 R3。
+    """
+    cleaned = strip_past_events(text)
+    if _contains_any(cleaned, _R3_KEYWORDS):
         return True
-    if _CHEST_EMERGENCY_RE.search(text) and _CHEST_COMPANION_RE.search(text):
+    if _CHEST_EMERGENCY_RE.search(cleaned) and _CHEST_COMPANION_RE.search(cleaned):
         return True
-    if _STROKE_RE.search(text):
+    if _STROKE_RE.search(cleaned):
         return True
     return is_critical_emergency(text)
 
@@ -82,12 +87,15 @@ def append_marker(content: str, risk, scenes=None) -> str:
 def infer_tags_local(user_text: str):
     """LLM 漏标时的本地兜底分级（保守，仅供参考），返回 (风险等级, 场景列表)。"""
     text = user_text or ""
-    scenes = detect_scenes(text)
+    # 既往病史/康复期语境先清洗再判定，避免「中风后…摔倒过…」被当现症。
+    # _is_emergency 内部自带清洗（且遇现症词会保留原文），故传原文。
+    cleaned = strip_past_events(text)
+    scenes = detect_scenes(cleaned)
 
     risk = "R0"
     if any(scene in scenes for scene in ("M2", "N1", "N2")) or _is_emergency(text):
         risk = "R3"
-    elif "E1" in scenes or "N3" in scenes or _contains_any(text, _R2B_KEYWORDS):
+    elif "E1" in scenes or "N3" in scenes or _contains_any(cleaned, _R2B_KEYWORDS):
         risk = "R2b"
     elif _contains_any(text, _R2A_KEYWORDS):
         risk = "R2a"
