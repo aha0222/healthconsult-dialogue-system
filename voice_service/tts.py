@@ -52,9 +52,10 @@ PIPER_CONFIG = MODELS_DIR / "zh_CN-huayan-medium.onnx.json"
 
 _backend = None  # ("melo", handle) / ("piper", handle)
 
-# 句间停顿（秒）——按各后端采样率换算成静音帧
-SENTENCE_PAUSE_SEC = 0.22
-COMMA_PAUSE_SEC = 0.10
+# 句间停顿（秒）——模型自带的句尾衰减之外补充的静音。
+# 实测教训：kokoro 每句输出尾部自带较长衰减静音，叠加 0.22s 后停顿明显过长。
+SENTENCE_PAUSE_SEC = 0.10
+COMMA_PAUSE_SEC = 0.05
 # 单句超过该字符数时按逗号二次切分
 MAX_SUBSENT_CHARS = 45
 
@@ -171,15 +172,44 @@ def _load_kokoro_torch():
     return KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO)
 
 
+def _trim_silence(samples, sample_rate: int, threshold: float = 0.004,
+                  keep_head: float = 0.03, keep_tail: float = 0.09):
+    """裁剪音频首尾的静音（模型句尾自带拖尾衰减，逐句拼接前必须裁掉）。"""
+    import numpy as np
+
+    if len(samples) == 0:
+        return samples
+    loud = np.where(np.abs(samples) > threshold)[0]
+    if len(loud) == 0:
+        return samples[: int(sample_rate * keep_head)]
+    start = max(0, int(loud[0] - sample_rate * keep_head))
+    end = min(len(samples), int(loud[-1] + sample_rate * keep_tail))
+    return samples[start:end]
+
+
 def _kokoro_torch_synthesize(pipe, text: str, speed: float) -> tuple:
-    """整段交给 KPipeline（内部按句切分），返回 (24000, int16 bytes, 2, 1)。"""
+    """整段交给 KPipeline（内部按句切分），逐句裁剪拖尾静音后拼接停顿。
+
+    返回 (24000, int16 bytes, 2, 1)。
+    """
     import numpy as np
 
     chunks = list(pipe(text, voice=KOKORO_TORCH_VOICE, speed=max(0.5, min(2.0, speed))))
-    audios = [c.audio.numpy() for c in chunks if c.audio is not None]
+    audios = [
+        _trim_silence(c.audio.numpy(), 24000)
+        for c in chunks
+        if c.audio is not None
+    ]
+    audios = [a for a in audios if len(a)]
     if not audios:
         return 24000, b"", 2, 1
-    pcm = (np.clip(np.concatenate(audios), -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    pause = np.zeros(int(24000 * SENTENCE_PAUSE_SEC), dtype=audios[0].dtype)
+    merged = []
+    for i, a in enumerate(audios):
+        merged.append(a)
+        if i < len(audios) - 1:
+            merged.append(pause)
+    pcm = (np.clip(np.concatenate(merged), -1.0, 1.0) * 32767).astype("<i2").tobytes()
     return 24000, pcm, 2, 1
 
 
