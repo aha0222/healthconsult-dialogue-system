@@ -60,6 +60,26 @@ def _is_emergency(text: str) -> bool:
     return is_critical_emergency(text)
 
 
+_FENCE_LINE_RE = re.compile(r"^\s*`{3,}[^`]*$")
+
+
+def strip_code_fences(text: str) -> str:
+    """删除模型模仿 prompt 格式产生的 markdown 代码围栏残留。
+
+    小模型偶尔把整段回复包进 ``` 围栏（prompt 里有表格/代码块格式时
+    尤其常见），围栏对老人端语音播报和纯文本气泡毫无意义。只删"整行
+    以 3 连及以上反引号开头"的行（可带语言标注）和正文末尾的残留反
+    引号；正文行内的零散反引号保留。
+    """
+    if "`" not in text:
+        return text
+    lines = text.splitlines()
+    kept = [ln for ln in lines if not _FENCE_LINE_RE.match(ln)]
+    if len(kept) != len(lines):
+        text = re.sub(r"\n{3,}", "\n\n", "\n".join(kept))
+    return re.sub(r"\s*`{1,}\s*$", "", text).strip()
+
+
 def parse_marker(raw: str):
     """从 LLM 原始回复中剥离双维度标记。
 
@@ -68,9 +88,8 @@ def parse_marker(raw: str):
     """
     raw = (raw or "").strip()
     risk, scenes = extract_tags(raw)
-    if risk is None and not scenes:
-        return raw, None, []
-    return strip_tags(raw), risk, scenes[:MAX_SCENES]
+    body = strip_tags(raw) if (risk is not None or scenes) else raw
+    return strip_code_fences(body), risk, scenes[:MAX_SCENES]
 
 
 def append_marker(content: str, risk, scenes=None) -> str:

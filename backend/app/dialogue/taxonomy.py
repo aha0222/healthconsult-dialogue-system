@@ -218,8 +218,10 @@ def max_risk(*risks) -> str:
 
 import re as _re
 
-RISK_RE = _re.compile(r"\[RISK:([^\]]+)\]", _re.IGNORECASE)
-SCENE_RE = _re.compile(r"\[SCENE:([^\]]+)\]", _re.IGNORECASE)
+# 标记两侧允许 0~2 个反引号：小模型偶尔模仿 prompt 的 markdown 格式把
+# 标记写成 `[RISK:R1]`，剥标记时须把反引号一并吃掉，否则正文残留 `
+RISK_RE = _re.compile(r"`{0,2}\[RISK:([^\]]+)\]`{0,2}", _re.IGNORECASE)
+SCENE_RE = _re.compile(r"`{0,2}\[SCENE:([^\]]+)\]`{0,2}", _re.IGNORECASE)
 MARKER_LIKE_RE = _re.compile(r"\[(?:RISK|SCENE)\b", _re.IGNORECASE)
 
 
