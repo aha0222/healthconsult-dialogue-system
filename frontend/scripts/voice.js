@@ -240,7 +240,7 @@
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: clean, format: "wav", speed: 0.9 }),
-    }, 30000)
+    }, 120000)
       .then(function (resp) {
         if (resp.status === 501) return false;
         if (!resp.ok) throw new Error("HTTP " + resp.status);

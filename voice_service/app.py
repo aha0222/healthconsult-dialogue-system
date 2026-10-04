@@ -39,6 +39,7 @@ from typing import Optional
 import asyncio
 import json
 import logging
+import threading
 import time
 
 from fastapi import (
@@ -61,6 +62,24 @@ from . import vad as _vad
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="小暖语音服务", version=__version__)
+
+# 启动时后台预热 TTS 模型（加载进显存/内存），避免首个播报请求等待
+# 模型加载（GPU 上实测首次约 30s+，会触发前端超时回退浏览器 TTS）。
+# ASR 同理惰性加载较轻，这里只预热 TTS；失败不影响服务（接口仍会按需重试）。
+
+
+@app.on_event("startup")
+def _warmup_tts() -> None:
+    def _warm() -> None:
+        try:
+            if _tts.is_available():
+                t0 = time.monotonic()
+                _tts.synthesize("语音服务已就绪")
+                logger.info("TTS 预热完成，耗时 %.1fs", time.monotonic() - t0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("TTS 预热失败（首次合成时将重试）：%s", exc)
+
+    threading.Thread(target=_warm, daemon=True, name="tts-warmup").start()
 
 # 前端多为 file:// 或本地端口，允许跨域直连（语音服务不持有任何密钥，放行安全）。
 app.add_middleware(
