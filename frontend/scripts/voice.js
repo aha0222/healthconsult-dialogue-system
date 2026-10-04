@@ -224,6 +224,43 @@
   /* ── TTS：/tts → Audio 播放 ───────────────────────────── */
 
   var currentPlayer = null;
+  var nextPlayer = null;   // 预加载的下一段（首句优先策略）
+
+  function stopSpeaking() {
+    if (currentPlayer) {
+      try { currentPlayer.pause(); } catch (e) { /* ignore */ }
+      currentPlayer = null;
+    }
+    if (nextPlayer) {
+      try { nextPlayer.pause(); } catch (e) { /* ignore */ }
+      nextPlayer = null;
+    }
+  }
+
+  // 请求 /tts 并封装成 Audio 对象（服务端 LRU 缓存使重复文本零合成）
+  function requestTts(text) {
+    var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
+    if (!clean) return Promise.resolve(null);
+    return fetchWithTimeout(state.baseUrl + "/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9 }),
+    }, 120000)
+      .then(function (resp) {
+        if (resp.status === 501) return null;
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        return resp.blob();
+      })
+      .then(function (blob) {
+        if (!blob) return null;
+        var url = URL.createObjectURL(blob);
+        var audio = new Audio(url);
+        audio.onended = audio.onerror = function () {
+          URL.revokeObjectURL(url);
+        };
+        return audio;
+      });
+  }
 
   function speak(text) {
     if (!state.probed) {
@@ -236,38 +273,36 @@
     stopSpeaking();
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return Promise.resolve(true);
-    return fetchWithTimeout(state.baseUrl + "/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9 }),
-    }, 120000)
-      .then(function (resp) {
-        if (resp.status === 501) return false;
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        return resp.blob();
-      })
-      .then(function (blob) {
-        if (blob === false) return false;
-        var url = URL.createObjectURL(blob);
-        var audio = new Audio(url);
-        currentPlayer = audio;
-        audio.onended = audio.onerror = function () {
-          URL.revokeObjectURL(url);
-          if (currentPlayer === audio) currentPlayer = null;
-        };
-        audio.play();
-        return true;
-      })
-      .catch(function () {
-        return false; // 调用方回退浏览器 TTS
-      });
-  }
 
-  function stopSpeaking() {
-    if (currentPlayer) {
-      try { currentPlayer.pause(); } catch (e) { /* ignore */ }
-      currentPlayer = null;
+    /* 首句优先：第一句立即合成播放（~1s 出声），剩余段并行预加载衔接。
+       拆句规则与服务端一致（按 。！？；），服务端 LRU 缓存使两段请求互不重复合成。 */
+    var cut = -1;
+    for (var i = 0; i < clean.length && i < 80; i++) {
+      if ("。！？；".indexOf(clean[i]) >= 0) { cut = i + 1; break; }
     }
+    var first = cut > 0 ? clean.slice(0, cut) : clean;
+    var rest = cut > 0 ? clean.slice(cut) : "";
+
+    return requestTts(first).then(function (audio) {
+      if (!audio) return false;
+      currentPlayer = audio;
+      if (rest) {
+        requestTts(rest).then(function (a2) { nextPlayer = a2; })
+          .catch(function () { nextPlayer = null; });
+        audio.onended = function () {
+          URL.revokeObjectURL(audio.src);
+          if (nextPlayer) {
+            currentPlayer = nextPlayer;
+            nextPlayer.play().catch(function () { /* ignore */ });
+            nextPlayer = null;
+          }
+        };
+      }
+      audio.play().catch(function () { /* ignore */ });
+      return true;
+    }).catch(function () {
+      return false; // 调用方回退浏览器 TTS
+    });
   }
 
   global.XiaonuanVoice = {

@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import re
 import wave
+from functools import lru_cache
 from pathlib import Path
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
@@ -193,8 +194,12 @@ def _kokoro_torch_synthesize(pipe, text: str, speed: float) -> tuple:
     返回 (24000, int16 bytes, 2, 1)。
     """
     import numpy as np
+    import torch
 
-    chunks = list(pipe(text, voice=KOKORO_TORCH_VOICE, speed=max(0.5, min(2.0, speed))))
+    with torch.inference_mode():
+        chunks = list(
+            pipe(text, voice=KOKORO_TORCH_VOICE, speed=max(0.5, min(2.0, speed)))
+        )
     audios = [
         _trim_silence(c.audio.numpy(), 24000)
         for c in chunks
@@ -348,8 +353,9 @@ def is_available() -> bool:
     return _kokoro_available() or _melo_available() or _piper_available()
 
 
-def synthesize(text: str, speed: float = 0.9) -> bytes:
-    """文本 -> wav 字节：切句逐段合成，按标点插入停顿后拼接。"""
+@lru_cache(maxsize=64)
+def _synthesize_cached(text: str, speed: float) -> bytes:
+    """带 LRU 缓存的合成：重听/重复播报零延迟。"""
     _, synth_one = get_backend()
     pieces = split_sentences(text)
     if not pieces:
@@ -372,3 +378,8 @@ def synthesize(text: str, speed: float = 0.9) -> bytes:
         w.setnchannels(channels)
         w.writeframes(body.getvalue())
     return out.getvalue()
+
+
+def synthesize(text: str, speed: float = 0.9) -> bytes:
+    """文本 -> wav 字节（带 LRU 缓存，重听秒出）。"""
+    return _synthesize_cached(text or "", speed)

@@ -74,7 +74,10 @@ def _warmup_tts() -> None:
         try:
             if _tts.is_available():
                 t0 = time.monotonic()
-                _tts.synthesize("语音服务已就绪")
+                # 合成两遍：第一遍加载模型，第二遍预热 CUDA kernel 缓存
+                # （首次真实推理的 kernel 编译会让前几次请求慢 2-3 秒）
+                _tts.synthesize("语音服务已就绪，您可以随时跟我说话。")
+                _tts.synthesize("咱们先从几个方面考虑这个问题，然后再慢慢想办法。")
                 logger.info("TTS 预热完成，耗时 %.1fs", time.monotonic() - t0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("TTS 预热失败（首次合成时将重试）：%s", exc)
