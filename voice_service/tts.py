@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import re
+import threading
 import wave
 from functools import lru_cache
 from pathlib import Path
@@ -164,13 +165,22 @@ def _kokoro_torch_available() -> bool:
 
 
 def _load_kokoro_torch():
+    global _kokoro_torch_pipe
+    if _kokoro_torch_pipe is not None:
+        return _kokoro_torch_pipe
     import os
 
     # 模型缓存在本机 HF cache；镜像用于首次下载
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     from kokoro import KPipeline
 
-    return KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO)
+    import torch
+
+    # 不传 device 时 KPipeline 默认 CPU（RT~0.9x）；显式上 GPU（RT~0.02x）
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    pipe = KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO, device=device)
+    _kokoro_torch_pipe = pipe
+    return pipe
 
 
 def _trim_silence(samples, sample_rate: int, threshold: float = 0.004,
@@ -224,7 +234,13 @@ def _kokoro_available() -> bool:
     return KOKORO_MODEL.exists() and KOKORO_VOICES.exists() and KOKORO_TOKENS.exists()
 
 
+_kokoro_tts = None
+
+
 def _load_kokoro():
+    global _kokoro_tts
+    if _kokoro_tts is not None:
+        return _kokoro_tts
     import sherpa_onnx
 
     lexicons = ",".join(
@@ -244,7 +260,8 @@ def _load_kokoro():
     )
     model_config = sherpa_onnx.OfflineTtsModelConfig(kokoro=kokoro)
     config = sherpa_onnx.OfflineTtsConfig(model=model_config)
-    return sherpa_onnx.OfflineTts(config)
+    _kokoro_tts = sherpa_onnx.OfflineTts(config)
+    return _kokoro_tts
 
 
 def _kokoro_synthesize_one(tts, text: str, speed: float) -> tuple:
@@ -261,7 +278,13 @@ def _melo_available() -> bool:
     return MELO_MODEL.exists() and MELO_TOKENS.exists() and MELO_LEXICON.exists()
 
 
+_melo_tts = None
+
+
 def _load_melo():
+    global _melo_tts
+    if _melo_tts is not None:
+        return _melo_tts
     import sherpa_onnx
 
     # int8 量化版优先（CPU 上速度约 2 倍，质量损失可忽略）
@@ -285,7 +308,8 @@ def _load_melo():
     )
     model_config = sherpa_onnx.OfflineTtsModelConfig(vits=vits)
     config = sherpa_onnx.OfflineTtsConfig(model=model_config, rule_fsts=rule_fsts)
-    return sherpa_onnx.OfflineTts(config)
+    _melo_tts = sherpa_onnx.OfflineTts(config)
+    return _melo_tts
 
 
 def _melo_synthesize_one(tts, text: str, speed: float) -> tuple:
@@ -303,10 +327,17 @@ def _piper_available() -> bool:
     return PIPER_MODEL.exists() and PIPER_CONFIG.exists()
 
 
+_piper_voice = None
+
+
 def _load_piper():
+    global _piper_voice
+    if _piper_voice is not None:
+        return _piper_voice
     from piper import PiperVoice
 
-    return PiperVoice.load(str(PIPER_MODEL), config_path=str(PIPER_CONFIG))
+    _piper_voice = PiperVoice.load(str(PIPER_MODEL), config_path=str(PIPER_CONFIG))
+    return _piper_voice
 
 
 def _piper_synthesize_one(voice, text: str, speed: float) -> tuple:
@@ -353,6 +384,9 @@ def is_available() -> bool:
     return _kokoro_available() or _melo_available() or _piper_available()
 
 
+_SYNTH_LOCK = threading.Lock()
+
+
 @lru_cache(maxsize=64)
 def _synthesize_cached(text: str, speed: float) -> bytes:
     """带 LRU 缓存的合成：重听/重复播报零延迟。"""
@@ -363,13 +397,15 @@ def _synthesize_cached(text: str, speed: float) -> bytes:
 
     rate = width = channels = None
     body = io.BytesIO()
-    for sentence, pause in pieces:
-        seg_rate, frames, seg_width, seg_channels = synth_one(sentence, speed)
-        if rate is None:
-            rate, width, channels = seg_rate, seg_width, seg_channels
-        body.write(frames)
-        if pause > 0:
-            body.write(b"\x00" * (int(seg_rate * pause) * seg_width * seg_channels))
+    with _SYNTH_LOCK:  # 合成器非线程安全：并发请求（预取+重听）串行执行
+        for k, (sentence, pause) in enumerate(pieces):
+            seg_rate, frames, seg_width, seg_channels = synth_one(sentence, speed)
+            if rate is None:
+                rate, width, channels = seg_rate, seg_width, seg_channels
+            body.write(frames)
+            # 末片不补停顿：句尾死空气只会推迟 onended；句间停顿由播放端队列控制
+            if pause > 0 and k < len(pieces) - 1:
+                body.write(b"\x00" * (int(seg_rate * pause) * seg_width * seg_channels))
 
     out = io.BytesIO()
     with wave.open(out, "wb") as w:

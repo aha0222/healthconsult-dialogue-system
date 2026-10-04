@@ -4,7 +4,8 @@
    职责（组长接线，Day0 契约见 voice_service/README.md）：
    - 探活 /health，读取 asr / tts 能力位
    - ASR：麦克风 PCM 采集 → 16kHz 单声道 WAV → POST /asr → 文本
-   - TTS：POST /tts → audio/wav 字节流 → Audio 播放（可打断）
+   - TTS：POST /tts → audio/wav 字节流 → 逐句队列播放（首句快出声，
+     播放中预取下一句衔接，可打断）
    - 语音服务未启动 / 未实现（501）时：canListen/canSpeak 为 false，
      调用方（chat.js）自动回退浏览器 Web Speech 或打字输入。
 
@@ -221,19 +222,17 @@
     }
   }
 
-  /* ── TTS：/tts → Audio 播放 ───────────────────────────── */
+  /* ── TTS：/tts → Audio 播放（逐句队列，可打断）────────── */
 
   var currentPlayer = null;
-  var nextPlayer = null;   // 预加载的下一段（首句优先策略）
+  var speakToken = 0;         // 打断代次：speak/stopSpeaking 递增，旧队列回调随之失效
+  var SENTENCE_GAP_MS = 100;  // 句间停顿：服务端已裁拖尾静音，由播放端补一拍
 
   function stopSpeaking() {
+    speakToken++;
     if (currentPlayer) {
       try { currentPlayer.pause(); } catch (e) { /* ignore */ }
       currentPlayer = null;
-    }
-    if (nextPlayer) {
-      try { nextPlayer.pause(); } catch (e) { /* ignore */ }
-      nextPlayer = null;
     }
   }
 
@@ -262,6 +261,19 @@
       });
   }
 
+  // 与服务端 split_sentences 对齐：按 。！？；… 与换行切句
+  function splitForPlayback(text) {
+    var parts = [];
+    var re = /[^。！？；…\n]+[。！？；…\n]*/g;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var s = m[0].trim();
+      if (s) parts.push(s);
+    }
+    if (!parts.length && text.trim()) parts.push(text.trim());
+    return parts;
+  }
+
   function speak(text) {
     if (!state.probed) {
       return probe().then(function (caps) {
@@ -274,38 +286,53 @@
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return Promise.resolve(true);
 
-    /* 首句优先：第一句立即合成播放（~1s 出声），剩余段并行预加载衔接。
-       拆句规则与服务端一致（按 。！？；），服务端 LRU 缓存使两段请求互不重复合成。 */
-    var cut = -1;
-    for (var i = 0; i < clean.length && i < 80; i++) {
-      if ("。！？；".indexOf(clean[i]) >= 0) { cut = i + 1; break; }
-    }
-    var first = cut > 0 ? clean.slice(0, cut) : clean;
-    var rest = cut > 0 ? clean.slice(cut) : "";
+    var parts = splitForPlayback(clean);
+    if (!parts.length) return Promise.resolve(true);
 
-    /* rest 的合成（~6s）常慢于首句播放（~2.4s）：把 Promise 存下来，
-       onended 时等待它就绪再接播，而不是放弃。 */
-    var restPromise = rest ? requestTts(rest) : Promise.resolve(null);
+    /* 逐句队列：第 i 句一起播就预取第 i+1 句。GPU 合成远快于播放时长，
+       句间只剩固定小停顿。旧方案"首句 + 整段 rest"在文本稍长后，
+       rest 整段合成慢于首句播放，句间空档随文本变长而拉大。 */
+    var myToken = speakToken;
+    var idx = 0;
+    var nextPromise = requestTts(parts[idx++]);
+    var started = false;  // 是否至少成功起播过一句（决定是否回退浏览器 TTS）
 
-    return requestTts(first).then(function (audio) {
-      if (!audio) return false;
-      currentPlayer = audio;
-      audio.onended = function () {
-        URL.revokeObjectURL(audio.src);
-        restPromise.then(function (a2) {
-          if (!a2) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(ok) {
+        if (!settled) { settled = true; resolve(ok); }
+      }
+      function playNext() {
+        if (myToken !== speakToken) { done(true); return; }  // 被新一轮接管，不回退浏览器
+        var cur = nextPromise;
+        if (!cur) { done(started); return; }
+        nextPromise = idx < parts.length ? requestTts(parts[idx++]) : null;
+        cur.then(function (audio) {
+          if (myToken !== speakToken) { done(true); return; }
+          if (!audio) { playNext(); return; }
+          currentPlayer = audio;
+          var advance = function () {
+            audio.onended = audio.onerror = null;
+            URL.revokeObjectURL(audio.src);
             currentPlayer = null;
-            return;
-          }
-          currentPlayer = a2;
-          a2.onended = function () { URL.revokeObjectURL(a2.src); };
-          a2.play().catch(function () { /* ignore */ });
-        }).catch(function () { currentPlayer = null; });
-      };
-      audio.play().catch(function () { /* ignore */ });
-      return true;
-    }).catch(function () {
-      return false; // 调用方回退浏览器 TTS
+            if (myToken !== speakToken) { done(true); return; }
+            if (nextPromise) {
+              setTimeout(function () { if (myToken === speakToken) playNext(); }, SENTENCE_GAP_MS);
+            } else {
+              done(true);
+            }
+          };
+          audio.onended = advance;
+          audio.onerror = advance;
+          audio.play().then(function () { started = true; }).catch(function () {
+            advance();  // 起播失败跳过该句；若首句即失败，started=false → 回退浏览器 TTS
+          });
+        }).catch(function () {
+          if (myToken !== speakToken) { done(true); return; }
+          playNext();
+        });
+      }
+      playNext();
     });
   }
 
