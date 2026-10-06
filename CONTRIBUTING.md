@@ -46,14 +46,34 @@ python -m venv .venv
 - Bug 与功能建议请走 GitHub Issues，使用 `.github/ISSUE_TEMPLATE/` 中的模板。
 - 报告问题时请附上复现步骤、环境信息与日志；**请先脱敏，不要粘贴 API Key 或老人隐私信息**。
 
-## 提交 PR
+## 提交方式
 
-1. 从 `main` 切出特性分支。
-2. 保持改动聚焦，一个 PR 只解决一件事。
-3. 新增或修改安全规则时，必须在 `backend/tests/redline_cases.jsonl` 补充对应用例。
-4. 确保 `python -m pytest -q` 全部通过（CI 还会跑 ruff、风险分级基线与语料质检）。
-5. 同步更新受影响的文档（README / backend/README.md / docs）。
-6. 修改场景 taxonomy（`backend/app/dialogue/taxonomy.py`）时，需同步
+**团队成员（组长 / 成员 A / 成员 B）直接提交到 `main`。**
+三人各自独立提交的操作成本高于收益（实际一直由组长统一提交），因此**不再要求走 PR 分支**：
+
+```powershell
+git add <改动文件>
+git commit -m "fix(voice): ..."
+git push origin main
+```
+
+外部贡献者仍走 PR：从 `main` 切出特性分支，一个 PR 只解决一件事。
+
+> `git push` 报 `Connection was reset` 或 `Failed to connect to github.com port 443`：
+> 国内直连 GitHub 不稳定，属正常现象，挂上代理重推即可（代理地址按自己的客户端改；
+> `fetch` / `pull` 同理）：
+>
+> ```powershell
+> git -c http.proxy=http://127.0.0.1:7890 push origin main
+> ```
+
+无论哪种方式，都请遵守：
+
+1. 保持改动聚焦，一个提交只解决一件事。
+2. 新增或修改安全规则时，必须在 `backend/tests/redline_cases.jsonl` 补充对应用例。
+3. 确保 `python -m pytest -q` 全部通过（CI 还会跑 ruff、风险分级基线与语料质检）。
+4. 同步更新受影响的文档（README / backend/README.md / docs）。
+5. 修改场景 taxonomy（`backend/app/dialogue/taxonomy.py`）时，需同步
    `safety_checker`、`tools/corpus_common.py`、SKILL.md、`rules/taxonomy.md`、
    `frontend/scripts/chat.js` 六处，并重跑 `tools/refresh_skill_snapshot.py` 刷新语料内嵌快照。
 
