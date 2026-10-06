@@ -13,6 +13,10 @@ python -m venv .venv
 > 只装 `tools/requirements.txt` 无法运行 `backend/tests`（缺 fastapi / httpx）。
 > 语音契约测试（`voice_service/tests`）额外需要 `numpy`；跑真实语音能力还需 `voice_service/requirements.txt`。
 
+> **装任何 GPU / CUDA 依赖前先读 README「GPU 加速语音合成（可选）」**：PyPI 上的 Windows
+> `torch` 是 CPU-only 构建（国内 PyPI 镜像里也是同一份），装错不会报错、只是 GPU 用不上。
+> CUDA 版只在 `download.pytorch.org` 及其镜像上，且各镜像速度差两个数量级。
+
 ## 运行测试
 
 ```powershell

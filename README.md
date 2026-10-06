@@ -67,6 +67,8 @@
 - **现代浏览器**（Chrome / Edge）：前端需要
 - 云端模式需要一个兼容 OpenAI 接口的 API Key（如 DeepSeek）
 - 语音服务：约 300MB 本地模型（脚本自动下载）；**离线 LLM**：约 2GB（CPU 慢，见下文 GPU 建议）
+- 可选 GPU 语音合成（Kokoro）：另需 2.6GB 的 **CUDA 版** PyTorch——它的下载源和其它依赖不一样，
+  走错源要下十几个小时，见下文「GPU 加速语音合成（可选）」
 
 ---
 
@@ -109,6 +111,54 @@ python -m voice_service                                    # 默认 http://127.0
 ```
 
 浏览器打开 `voice_service/demo.html` 自测录音识别与合成；在 `.env` 设 `VOICE_ENABLED=1` 后，前端对话页的麦克风/播报即走本地语音服务（服务未启动时自动回退浏览器语音或打字）。
+
+上面装的是 CPU 版语音（sherpa-onnx / piper）。Kokoro（音色更自然，`tts.py` 里的首选后端）需要额外装
+`kokoro` / `misaki[zh]` 和 **CUDA 版 PyTorch**，装法如下——**它的下载源是个独立的坑**。
+
+#### GPU 加速语音合成（可选）
+
+> ⚠️ **Windows 上的 CUDA 版 PyTorch 只发布在 `download.pytorch.org`。**
+> PyPI 上那份 `torch-*-cp3xx-cp3xx-win_amd64.whl`（清华、阿里等 **PyPI 镜像里也是同一份**，约 109MB）
+> 是 **CPU-only 构建**。装错之后不报错，只是 `torch.cuda.is_available()` 返回 `False`、GPU 完全用不上。
+> 所以**装 torch 本身不要用 `-i https://pypi.tuna.tsinghua.edu.cn/simple`**，只有小依赖（sympy / filelock 等）
+> 才走镜像；也**不要把 torch 写进 `voice_service/requirements.txt`**，那会让 `-r` + 镜像装上 CPU 版。
+
+同一个 `torch-2.11.0+cu128-cp312-cp312-win_amd64.whl`（2.62 GiB）各来源实测（2026-10-06，电信宽带）：
+
+| 来源 | 实测速度 | 预计耗时 |
+|------|----------|----------|
+| `download.pytorch.org/whl/cu128`（官方） | 18.3 MB/s | **约 2.5 分钟** |
+| `mirror.sjtu.edu.cn/pytorch-wheels/cu128`（上海交大） | 1.3 MB/s | 约 33 分钟 |
+| `mirrors.aliyun.com/pytorch-wheels/cu128`（阿里云） | 84 KB/s | **9～11 小时** |
+| 清华 / 南大 PyTorch 镜像 | 没有这个镜像（404） | — |
+
+**阿里云的 pytorch-wheels 镜像极慢，绕开它**——网上「换个国内镜像就秒下」的经验对它不成立，
+十几小时的下载基本都是这里来的。推荐两种做法：
+
+```powershell
+# 做法 1（最快）：在一台网速好的机器上下好 wheel，再把文件拷给别人（U 盘 / 局域网）
+python -m pip download torch==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128 --no-deps -d E:\wheels
+# 拿到文件的一方：
+python -m pip install E:\wheels\torch-2.11.0+cu128-cp312-cp312-win_amd64.whl -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 做法 2：直接走上海交大镜像（已实测 pip 可解析）
+python -m pip install torch==2.11.0+cu128 `
+  --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/ `
+  --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 再装 Kokoro 本身（这两个在 PyPI 上有，走镜像没问题）
+python -m pip install kokoro misaki[zh] -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+装完自查，应输出 `2.11.0+cu128 True`：
+
+```powershell
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+`+cu128` 对 RTX 5060（Blackwell / sm_120）是支持的，不用降级。Kokoro 的权重首次合成时从
+HuggingFace 拉取，`tts.py` 已默认把 `HF_ENDPOINT` 指向 `hf-mirror.com`，无需翻墙。
+注意 pip **不支持单文件断点续传**，换源后从头下比在慢源上续剩下的快得多。
 
 ### 离线模式（可选：不要云端 Key 也能跑）
 
