@@ -51,6 +51,7 @@
     state.probed = false;
     state.asrReady = false;
     state.ttsReady = false;
+    lastProbeAt = Date.now();
     var base = baseUrl();
     return fetchWithTimeout(base + "/health")
       .then(function (resp) {
@@ -72,6 +73,24 @@
 
   function canListen() { return state.probed && state.asrReady; }
   function canSpeak() { return state.probed && state.ttsReady; }
+
+  /* 冷启动时页面常常先于语音服务就绪打开（start.ps1 一拉起来就开浏览器，
+     而 Kokoro 加载+预热还要十几秒）：一次探活失败后若不再重试，整场都会
+     静默退回浏览器语音，音色和音质都不一样。这里允许按需重探，
+     PROBE_RETRY_MS 节流避免连续请求打爆服务。 */
+  var PROBE_RETRY_MS = 1500;
+  var lastProbeAt = 0;
+
+  function ensureReady() {
+    var fresh = Date.now() - lastProbeAt < PROBE_RETRY_MS;
+    if (state.probed && (state.asrReady || state.ttsReady)) {
+      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady });
+    }
+    if (fresh) {
+      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady });
+    }
+    return probe();
+  }
 
   /* ── WAV 编码（Float32 → 16kHz 单声道 16bit PCM WAV）──── */
 
@@ -121,16 +140,13 @@
 
   function startListening(handlers) {
     handlers = handlers || {};
-    if (!state.probed) {
-      probe().then(function (caps) {
+    if (!state.asrReady) {
+      // 未就绪：按需重探一次再决定（同 speak，覆盖冷启动窗口）
+      ensureReady().then(function (caps) {
         if (caps.asr) startListening(handlers);
         else if (handlers.onError) handlers.onError("unavailable");
       });
       return true;
-    }
-    if (!state.asrReady) {
-      if (handlers.onError) handlers.onError("unavailable");
-      return false;
     }
     if (recording) stopListening();
 
@@ -275,13 +291,13 @@
   }
 
   function speak(text) {
-    if (!state.probed) {
-      return probe().then(function (caps) {
+    if (!state.ttsReady) {
+      // 未就绪（含"页面早于服务打开"的首播）：按需重探一次再决定
+      return ensureReady().then(function (caps) {
         if (caps.tts) return speak(text);
         return false;
       });
     }
-    if (!state.ttsReady) return Promise.resolve(false);
     stopSpeaking();
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return Promise.resolve(true);

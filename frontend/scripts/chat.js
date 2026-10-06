@@ -264,17 +264,34 @@
   }
 
   /* 第三阶段接线：后端 VOICE_ENABLED=1 时才探活 voice_service；
-     探活失败/未实现（501）时保持浏览器语音或打字版，行为不变。 */
+     探活失败/未实现（501）时保持浏览器语音或打字版，行为不变。
+
+     冷启动时页面常先于后端/语音服务就绪打开（start.ps1 一拉起来就开浏览器），
+     所以这里带重试：否则能力位永远停在 false，整场都会静默退回浏览器语音
+     （音色与音质都不同，且不报错，很难察觉）。 */
+  var voiceWanted = false;          // 后端已声明开启语音能力
+  var voiceProbeAttempts = 0;
+  var VOICE_PROBE_MAX_ATTEMPTS = 40;   // 约 60 秒，足够覆盖 Kokoro 加载+预热
+  var VOICE_PROBE_INTERVAL_MS = 1500;
+
   function initVoiceCapability() {
     if (!window.XiaonuanVoice) return;
     var base = backendBase();
     if (!base) return;
     fetchJson(base + "/api/health")
       .then(function (health) {
-        if (health.voice_enabled) return XiaonuanVoice.probe();
-        return { asr: false, tts: false };
+        if (!health.voice_enabled) return "stop";   // 后端没开语音：不必重试
+        voiceWanted = true;
+        return XiaonuanVoice.probe().then(function (caps) {
+          return (caps.asr || caps.tts) ? "stop" : "retry";
+        });
       })
-      .catch(function () { /* 后端未起时不影响页面 */ });
+      .catch(function () { return "retry"; })       // 后端还没起来
+      .then(function (verdict) {
+        if (verdict === "stop" || voiceProbeAttempts >= VOICE_PROBE_MAX_ATTEMPTS) return;
+        voiceProbeAttempts += 1;
+        setTimeout(initVoiceCapability, VOICE_PROBE_INTERVAL_MS);
+      });
   }
 
   function loadSettings() {
@@ -701,8 +718,10 @@
 
   function speak(text) {
     /* 第三阶段接线：后端 VOICE_ENABLED=1 且 voice_service TTS 就绪时走本地语音服务，
-       不可用/失败时自动回退浏览器合成，打字版行为不受影响。 */
-    if (window.XiaonuanVoice && XiaonuanVoice.canSpeak()) {
+       不可用/失败时自动回退浏览器合成，打字版行为不受影响。
+       只要后端声明开了语音（voiceWanted）就先交给本地服务试——它内部会按需重探，
+       服务确实不可用时返回 false，这一句再回退浏览器。 */
+    if (window.XiaonuanVoice && (voiceWanted || XiaonuanVoice.canSpeak())) {
       XiaonuanVoice.speak(text).then(function (ok) {
         if (!ok) speakWithBrowser(text);
       });
