@@ -93,6 +93,32 @@ def _with_v1(base_url: str) -> str:
     return url
 
 
+def _is_connection_error(exc: BaseException) -> bool:
+    """是否为连接级失败（含超时）。
+
+    `APITimeoutError` 是 `APIConnectionError` 的子类，所以这一个判断同时覆盖
+    "连不上"与"连上了但超时"；而 `BadRequestError` 等**不是**它的子类，
+    内容类错误不会被误当成连接问题。
+    """
+    try:
+        from openai import APIConnectionError
+    except ImportError:  # pragma: no cover - 依赖缺失时由调用方另行报错
+        return False
+    return isinstance(exc, APIConnectionError)
+
+
+def _drop_endpoint_clients() -> None:
+    """丢弃所有缓存的端点 client，让下次请求重建连接。
+
+    不按 base_url 精确匹配：实际部署只有一个端点，全清更简单也够用。
+    为什么必须丢：httpx 连接池里的坏连接不会自愈，而这些 client 是进程级缓存，
+    不丢的话一次瞬时失败会让此后每次请求都复用坏连接（详见
+    docs/local_llm_endpoint_wedge_report.md）。
+    """
+    with _LOCK:
+        _ENDPOINT_CLIENTS.clear()
+
+
 class _EndpointBackend:
     """OpenAI 兼容本地端点。"""
 
@@ -103,11 +129,11 @@ class _EndpointBackend:
         self.api_key = api_key or DEFAULT_PLACEHOLDER_KEY
         self.timeout = timeout
 
-    def client(self):
+    def client(self, fresh: bool = False):
         key = (self.base_url, self.timeout)
         with _LOCK:
             client = _ENDPOINT_CLIENTS.get(key)
-            if client is None:
+            if client is None or fresh:
                 try:
                     from openai import OpenAI
                 except ImportError as exc:  # pragma: no cover - 依赖缺失
@@ -129,11 +155,25 @@ class _EndpointBackend:
 
         不要拿 /v1/chat/completions 探活：那会真的跑一次推理。
         llama-server 另有 /health（不在 /v1 下），但通用性不如 /models。
+
+        连接级失败会**丢弃池里的 client、换一条新连接重试一次**。这是必须的：
+        client 是进程级缓存的，而 httpx 池里的坏连接不会自愈，不换掉它的话
+        一次瞬时失败会让此后每次探活都复用坏连接——表现为"整页无法对话、
+        只有重启后端才能恢复"（见 docs/local_llm_endpoint_wedge_report.md）。
+        重试只针对连接错误，且只重试一次，`max_retries=0` 仍然保留（CPU 档
+        一次超时被放大成三次的顾虑不变）。
         """
         client = self.client()
         try:
             client.with_options(timeout=timeout).models.list()
         except Exception as exc:
+            if _is_connection_error(exc):
+                logger.warning(
+                    "端点探活连接失败（%s），丢弃缓存的 client 后换新连接重试一次", exc
+                )
+                fresh = self.client(fresh=True)
+                fresh.with_options(timeout=timeout).models.list()
+                return
             # 端口上蹲着别的服务（代理、Web 服务器等）时返回的是 HTML，
             # 报错原文很难看懂，这里补一句可操作的提示。
             text = str(exc)
@@ -348,12 +388,19 @@ class LocalLLM:
             "或改用 llama_cpp 后端并配置 OFFLINE_LLM_MODEL_PATH 指向 GGUF 文件。"
         )
 
-    def _invalidate(self):
-        """调用失败时丢弃缓存，让下次请求重新解析（端点可能已重启）。"""
+    def _invalidate(self, exc: BaseException | None = None):
+        """调用失败时丢弃缓存，让下次请求重新解析（端点可能已重启）。
+
+        连接级失败还要**丢弃进程级缓存的端点 client**：只清解析结果的话，下次
+        请求拿回来的还是同一个坏 client（它连同 httpx 连接池一起被缓存），
+        于是永久卡死。详见 docs/local_llm_endpoint_wedge_report.md。
+        """
         fp = self._fingerprint()
         with _LOCK:
             _RESOLVED.pop(fp, None)
         self._backend = None
+        if exc is None or _is_connection_error(exc):
+            _drop_endpoint_clients()
 
     # ── 对 LLMClient 的接口 ───────────────────────────────────────
     def _target_model(self, model):
@@ -402,7 +449,7 @@ class LocalLLM:
         except LLMError:
             raise
         except Exception as exc:
-            self._invalidate()
+            self._invalidate(exc)
             raise LLMError(
                 f"本地模型调用失败（后端 {self._backend_name or '未解析'}）：{exc}"
             ) from exc
@@ -438,7 +485,7 @@ class LocalLLM:
         except LLMError:
             raise
         except Exception as exc:
-            self._invalidate()
+            self._invalidate(exc)
             raise LLMError(
                 f"本地模型流式调用失败（后端 {self._backend_name or '未解析'}）：{exc}"
             ) from exc
@@ -449,7 +496,7 @@ class LocalLLM:
                 if content:
                     yield content
         except Exception as exc:
-            self._invalidate()
+            self._invalidate(exc)
             raise LLMError(f"本地模型流式生成中断：{exc}") from exc
 
 

@@ -217,3 +217,53 @@ def test_probe_timeout_is_bounded(monkeypatch):
     """探活要有独立且较短的超时，不能拖到完整调用超时。"""
     monkeypatch.setenv("OFFLINE_LLM_PROBE_TIMEOUT", "1")
     assert local_llm._env_float("OFFLINE_LLM_PROBE_TIMEOUT", 3.0) == 1.0
+
+
+def test_stale_pooled_client_is_replaced(monkeypatch, fake_endpoint):
+    """连接池里已坏的 client 必须被换掉，不能永久复用。
+
+    复现"整页无法对话、只有重启后端才能恢复"：往进程级缓存里塞一个已坏的 client
+    （等价于 httpx 池里的连接坏了），此后的探活应当丢弃它并用正确地址重建；
+    没有这个修复时 probe 会一直复用坏 client，端点永远不可用。
+    见 docs/local_llm_endpoint_wedge_report.md。
+
+    用桩对象而不是"指向一个关着的端口"：探活只要求 client 支持
+    `with_options(timeout=...).models.list()`，桩能精确复现"连接级失败"这一条件，
+    又不受真实网络行为影响（端口拒绝的时机在 Windows 上并不稳定）。
+    """
+    from openai import APIConnectionError
+
+    base, _ = fake_endpoint
+    monkeypatch.setenv("OFFLINE_LLM_ENDPOINT", base)
+    settings = _settings(monkeypatch)
+
+    calls = {"n": 0}
+
+    class _DeadModels:
+        def list(self):
+            calls["n"] += 1
+            import httpx
+
+            raise APIConnectionError(
+                request=httpx.Request("GET", "http://127.0.0.1:1/v1/models")
+            )
+
+    class _DeadClient:
+        """只实现探活用到的两个方法，模拟连接已坏的 client。"""
+
+        models = _DeadModels()
+
+        def with_options(self, **_kwargs):
+            return self
+
+    timeout = local_llm._env_float("OFFLINE_LLM_TIMEOUT", local_llm.DEFAULT_TIMEOUT)
+    dead = _DeadClient()
+    key = (f"{base}/v1", timeout)
+    local_llm._ENDPOINT_CLIENTS[key] = dead
+
+    llm = LocalLLM(settings)
+    out = llm.chat([{"role": "user", "content": "我大便发黑"}])
+
+    assert out == REPLY
+    assert calls["n"] == 1, "坏 client 应当只被尝试一次，随后即被丢弃"
+    assert local_llm._ENDPOINT_CLIENTS.get(key) is not dead
