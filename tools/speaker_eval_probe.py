@@ -81,8 +81,13 @@ SEED_CASES = [
 
 
 def load_jsonl(path: str):
-    """从 JSONL 读取评测样例，返回与 SEED_CASES 同构的元组列表。"""
-    cases = []
+    """读取评测集，返回 (角色类样例, 安全类样例)。
+
+    角色类行带 ``"expected": "elder"/"family"``，由本脚本直接判定。
+    安全类行 ``"expected"`` 为 null，断言的是"角色不改变红线"——那必须走
+    /api/chat 才能测，本脚本只列出、不判分。
+    """
+    role_cases, safety_cases = [], []
     with open(path, encoding="utf-8") as f:
         for lineno, line in enumerate(f, 1):
             line = line.strip()
@@ -90,21 +95,26 @@ def load_jsonl(path: str):
                 continue
             try:
                 item = json.loads(line)
-                cases.append((
-                    item.get("category", "未分类"),
-                    item["expected"],
-                    item["text"],
-                    item.get("history"),
-                ))
+                text = item["text"]
+                category = item.get("category", "未分类")
             except (json.JSONDecodeError, KeyError) as exc:
                 raise SystemExit(f"{path}:{lineno} 解析失败：{exc}") from exc
-    return cases
+            if item.get("expected"):
+                role_cases.append((category, item["expected"], text,
+                                   item.get("history")))
+            else:
+                safety_cases.append((category, text, item.get("assert", "")))
+    return role_cases, safety_cases
 
 
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    cases = load_jsonl(args[0]) if args else SEED_CASES
-    source = args[0] if args else "内置种子样例（40 例）"
+    if args:
+        cases, safety_cases = load_jsonl(args[0])
+        source = args[0]
+    else:
+        cases, safety_cases = SEED_CASES, []
+        source = "内置种子样例（40 例）"
 
     by_class = defaultdict(lambda: [0, 0, []])
     miss_family = []   # 漏判：家属被当老人
@@ -147,6 +157,15 @@ def main() -> None:
     print(f"漏判 family（家属被当老人，退回现状）：{len(miss_family)} 例")
     for cls, text in miss_family:
         print(f"      [{cls}] {text}")
+
+    if safety_cases:
+        print("\n" + "=" * 72)
+        print(f"类 6 安全不变式交叉：{len(safety_cases)} 例（不判分，需走 /api/chat）")
+        print("=" * 72)
+        print("断言：同一文本分别以 speaker_role=elder / family 请求，risk_level")
+        print("      与兜底话术必须一致——即角色不改变红线。")
+        for _, text, _ in safety_cases:
+            print(f"      {text}")
 
 
 if __name__ == "__main__":
