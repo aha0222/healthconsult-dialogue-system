@@ -8,14 +8,21 @@
 └──────────────────────────────────────────────────────────────────────┘
 
 实现（启发式打分，零 LLM 调用）：
-  1) 家属信号（+2 分/项）：长辈亲属称谓（我爸/我母亲/爷爷…）、
-     泛指家中老人（我家老人/老爷子…）、照护动词 + 老人/第三人称。
+  0) 引号剥离：先剔除引号/书名号内的内容再打分。"我妈说“我不吃药”"里的
+     "我"指老人本人，不算说话人的自述——引内内容属于被转述者。
+  1) 家属信号（+2 分/项）：长辈亲属称谓（我爸/我母亲/爷爷…，含方言
+     我爹/我娘/姥爷/姥姥/阿婆/我爷）、泛指家中老人（我家老人/老爷子…）、
+     照护动词 + 老人/第三人称。
   2) 老人信号（+2 分/项）：我 + 症状/用药（带亲属字屏蔽，"我爸不肯吃药"
      不计老人分）、向下亲属（我儿子/我女儿/我老伴）、独居自述。
   3) 弱家属信号（+1 分）：第三人称 + 症状（"她血糖高"），仅在近期
-     历史出现明确家属信号时才升级为 family。
+     历史**最近一条明确信号**为家属时才升级为 family。
   4) 判定：family_score >= 2 且高于 elder_score 才判家属；
      平局、不足阈值、空输入一律回退 SPEAKER_ELDER（宁可不切，不可误切）。
+
+历史延续取"最近一条明确信号"而非"窗口内存在家属信号"：双人对话里老人会
+接过话头（"我爸血压高" 之后老人说 "我头晕"），"存在即升级"会把老人误判成
+家属——那是本模块唯一会伤害体验的方向（系统改口称"您可以怎么照顾老人"）。
 
 安全不变式（任何角色下都成立）：
   用药 / 急症 / 心理危机 / 人身安全红线**不因说话人是谁而改变**。
@@ -52,6 +59,13 @@ ROLE_HINTS = {
 _KINSHIP_RE = re.compile(
     r"(?:我家?|家里|家中|替|我)?(?:老)?(?:爸|妈|父亲|母亲|爷爷|奶奶|外公|外婆|岳父|岳母|公公|婆婆)"
 )
+# 方言 / 口语称谓。**不通用的词必须带人称前缀**，否则会误命中非亲属词
+# （"姑娘""大爷""老娘我"）。例：我爹 / 俺娘 / 我老娘 / 我爷 / 我姥爷 / 我阿婆。
+# 「老娘」同理只在带前缀时算（"老娘我…"是老人自称，不算家属信号）。
+_DIALECT_KINSHIP_RE = re.compile(
+    r"(?:我|俺|你|咱|他|她|家里|家中)(?:老)?(?:爹|娘|爷)"
+    r"|(?:我|俺|你|咱|他|她)?(?:姥爷|姥姥|姥娘|阿婆)"
+)
 # 泛指家中老人（第三人称）：我家老人 / 家里老人 / 老爷子 / 老太太 / 老人家
 _ELDER_REF_RE = re.compile(r"(?:我家|家里|家中|他家|她家)?(?:老人|老人家|老爷子|老太太)")
 # 照护动词 + 被照护对象：照顾老人 / 护理他 / 照料奶奶…
@@ -76,12 +90,29 @@ _SYMPTOMS = (
     "心烦|犯困|没精神|浑身疼|身上疼|腿脚不利索|走路喘|呛咳|说胡话|发慌|"
     "降压药|降糖药|止痛药|安眠药|吃药|服药|停药|加药|量血压|量血糖|化验单|体检"
 )
+# 引号 / 书名号内的内容：属于被转述者，打分前先剔除（见模块文档第 0 条）
+_QUOTED_RE = re.compile(r"“[^”]*”|‘[^’]*’|「[^」]*」|『[^』]*』|\"[^\"]*\"")
+
+# 亲属 / 第三人称字：紧跟在"我"之后出现时，说明"我"修饰的是亲属而不是说话人
+# 自己（"我爸不肯吃药""我爷爷头晕""我岳母腿疼"都不算老人自述）。
+# 必须覆盖 _KINSHIP_RE 与 _DIALECT_KINSHIP_RE 里的全部单字，否则新增的方言
+# 称谓会被反向读成老人自述（"我爹不肯吃药"曾因此判成老人）。
+_KIN_CHARS = "爸妈父母亲爷奶爹娘姥阿婆公外岳"
+
 # "我 + 症状"：中间最多 4 个非标点字符，且后面 5 个字符内不得出现亲属/第三人称字，
 # 避免"我爸不肯吃药""我爷爷头晕"误计为老人自述；
 # "我家…"开头的自述同样不计分（"我家老人摔了一跤"指向家属称谓）。
 _SELF_SYM_RE = re.compile(
-    r"我(?!家)(?![^，。！？]{0,5}[爸妈亲爷奶婆公外孙子女他她它])[^，。！？]{0,4}"
-    r"(?:" + _SYMPTOMS + r")"
+    r"我(?!家)(?![^，。！？]{0,5}[" + _KIN_CHARS + r"孙子女他她它])"
+    r"[^，。！？]{0,4}(?:" + _SYMPTOMS + r")"
+)
+# 单字不适自述兜底："我腿也疼""我腰也酸""我手也麻"。
+# 复合症状词（腿疼/腰疼）被"也/还/又"隔开时固定词表必然漏，而漏掉之后
+# 历史判定会一路回退到更早的家属信号，把老人误判成家属——那是唯一伤害
+# 体验的方向，所以这里宁可宽一点。
+_SELF_HURT_RE = re.compile(
+    r"我(?!家)(?![^，。！？]{0,5}[" + _KIN_CHARS + r"孙子女他她它])"
+    r"[^，。！？]{0,4}(?:疼|痛|酸|麻|晕|胀|咳|喘|痒|木)"
 )
 # 向下亲属 / 配偶（说话人辈分更高）：我儿子 / 我女儿 / 我老伴 / 我家孩子
 _DOWNKIN_RE = re.compile(r"(?:我|我家)(?:老伴|儿子|女儿|孩子|孙子|孙女|外孙|媳妇|女婿)")
@@ -98,37 +129,47 @@ _HISTORY_WINDOW = 5
 def _score(text: str) -> tuple[int, int]:
     """对单条文本打分，返回 (家属分, 老人分)。"""
     text = text or ""
+    # 引内内容属于被转述者，先剔除再打分（见模块文档第 0 条）
+    spoken = _QUOTED_RE.sub("", text)
+
     family = 0
-    if _KINSHIP_RE.search(text):
+    if _KINSHIP_RE.search(spoken) or _DIALECT_KINSHIP_RE.search(spoken):
         family += 2
-    if _ELDER_REF_RE.search(text):
+    if _ELDER_REF_RE.search(spoken):
         family += 2
-    if _CARE_VERB_RE.search(text):
+    if _CARE_VERB_RE.search(spoken):
         family += 2
-    if _PRONOUN_SYM_RE.search(text):
+    if _PRONOUN_SYM_RE.search(spoken):
         family += 1
 
     elder = 0
-    if _SELF_SYM_RE.search(text):
+    if _SELF_SYM_RE.search(spoken) or _SELF_HURT_RE.search(spoken):
         elder += 2
-    if _DOWNKIN_RE.search(text):
+    if _DOWNKIN_RE.search(spoken):
         elder += 2
-    if _SELF_OLD_RE.search(text):
+    if _SELF_OLD_RE.search(spoken):
         elder += 2
     return family, elder
 
 
-def _history_confirms_family(history) -> bool:
-    """近期历史里是否有明确的家属信号（家属分≥2 且无老人分）。"""
-    if not history:
-        return False
-    messages = [
-        item for item in history[-_HISTORY_WINDOW:] if isinstance(item, str) and item
-    ]
-    return any(
-        family >= _FAMILY_THRESHOLD and elder == 0
-        for family, elder in (_score(msg) for msg in messages)
-    )
+def _history_last_signal(history) -> Optional[str]:
+    """近期历史里**最近一条明确信号**的角色；没有明确信号返回 None。
+
+    明确信号 = 家属分或老人分达到 _FAMILY_THRESHOLD（一条实打实的分）；
+    弱信号（+1 分的第三人称 + 症状）不算。
+
+    为什么取"最近一条"而不是"窗口内存在家属信号"：双人对话里老人会接过
+    话头。["我爸血压高", "我头晕"] 两条都在 5 条窗口内，但最近一条是老人
+    自述，应当判老人；按"存在即升级"会把每一句都判成家属——那是本模块
+    唯一会伤害老人体验的方向。
+    """
+    messages = [item for item in (history or []) if isinstance(item, str) and item]
+    for msg in reversed(messages[-_HISTORY_WINDOW:]):
+        family, elder = _score(msg)
+        if family >= _FAMILY_THRESHOLD or elder >= _FAMILY_THRESHOLD:
+            # 同一句里两边都够分时按平局处理 -> 老人（与当前句的平局规则一致）
+            return SPEAKER_FAMILY if family > elder else SPEAKER_ELDER
+    return None
 
 
 def detect_speaker_role(text: str, history: Optional[Iterable[str]] = None) -> str:
@@ -142,8 +183,9 @@ def detect_speaker_role(text: str, history: Optional[Iterable[str]] = None) -> s
 
     判定规则：
         - 家属分 >= 2 且严格高于老人分 -> 家属；
-        - 弱家属信号（或无信号）但近期历史有明确家属信号且当前无老人信号
-          -> 家属（多轮延续，如先说"我爸80岁了"再问"他总忘事怎么办"）；
+        - 弱家属信号（或无信号）但当前无老人信号、且近期历史**最近一条明确
+          信号**是家属 -> 家属（多轮延续，如先说"我爸80岁了"再问"他总忘事
+          怎么办"）；老人中途接过话头则随之切回老人；
         - 其余（平局、不足阈值、空输入、异常）-> 老人（＝现状）。
     """
     try:
@@ -151,7 +193,7 @@ def detect_speaker_role(text: str, history: Optional[Iterable[str]] = None) -> s
         if family >= _FAMILY_THRESHOLD and family > elder:
             return SPEAKER_FAMILY
         history_items = [item for item in (history or []) if isinstance(item, str)]
-        if elder == 0 and _history_confirms_family(history_items):
+        if elder == 0 and _history_last_signal(history_items) == SPEAKER_FAMILY:
             return SPEAKER_FAMILY
     except Exception:  # 识别失败不阻断对话，维持现状
         return SPEAKER_ELDER
