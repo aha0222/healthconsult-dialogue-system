@@ -27,6 +27,13 @@
     全部层上显存、KV 缓存量化 q8_0，单轮问答从 CPU 档的数分钟降到约 8 秒。
     不给则沿用 CPU 档（bin\ + models\ 里最大的 GGUF）。
 
+    **缺 GPU 资产时直接报错退出**，不会静默退回 CPU 档——静默降级会让人以为
+    "GPU 档跑起来了"，实际一轮要数分钟。确实要用 CPU 档请显式加
+    -AllowCpuFallback。
+
+.PARAMETER AllowCpuFallback
+    允许 -Gpu 在缺 bin-cuda\ / models-7b\ 资产时退回 CPU 档。默认不允许。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1
     powershell -ExecutionPolicy Bypass -File scripts\offline\start.ps1 -Gpu
@@ -39,6 +46,7 @@ param(
     [switch]$NoBrowser,
     [switch]$Check,
     [switch]$Gpu,
+    [switch]$AllowCpuFallback,
     [string]$Python = ""
 )
 
@@ -182,8 +190,15 @@ $modelDir  = if ($Gpu) { "models-7b" } else { "models" }
 $serverExe = Join-Path $OfflineDir "$engineDir\llama-server.exe"
 if (-not (Test-Path $serverExe)) {
     if ($Gpu) {
-        Write-Warn2 "找不到 $engineDir\llama-server.exe，退回 CPU 档引擎（bin\）。"
-        Write-Warn2 "GPU 引擎可用 download_cudart.py 补齐运行时后重试。"
+        if (-not $AllowCpuFallback) {
+            throw ("-Gpu 要求 GPU 档，但找不到 $engineDir\llama-server.exe。`n" +
+                   "  缺资产时不会静默退回 CPU 档——那样会让人以为跑的是 GPU 档，" +
+                   "实际一轮从约 8 秒变成数分钟。`n" +
+                   "  补 GPU 引擎：python scripts\offline\download_cudart.py`n" +
+                   "  并确认 bin-cuda\ 与 models-7b\ 都存在。`n" +
+                   "  确实要用 CPU 档：显式加 -AllowCpuFallback。")
+        }
+        Write-Warn2 "找不到 $engineDir\llama-server.exe，按 -AllowCpuFallback 退回 CPU 档引擎（bin\）。"
         $engineDir = "bin"
         $serverExe = Join-Path $OfflineDir "bin\llama-server.exe"
     }
@@ -207,7 +222,15 @@ if (-not $modelPath) {
     }
     if ($found) { $modelPath = $found.FullName }
     if ($Gpu -and -not $found) {
-        Write-Warn2 "models-7b\ 里没有 GGUF 模型，退回 models\。"
+        if (-not $AllowCpuFallback) {
+            throw ("-Gpu 要求 7B 档，但 $modelDir\ 里没有 GGUF 模型。`n" +
+                   "  缺资产时不会静默退回 models\ 的 3B——那样会让人以为跑的是" +
+                   "7B/GPU 档。`n" +
+                   "  补模型：powershell -ExecutionPolicy Bypass -File " +
+                   "scripts\offline\fetch_model.ps1`n" +
+                   "  确实要用 CPU 档：显式加 -AllowCpuFallback。")
+        }
+        Write-Warn2 "models-7b\ 里没有 GGUF 模型，按 -AllowCpuFallback 退回 models\。"
         $found = Get-ChildItem (Join-Path $OfflineDir "models") -Filter *.gguf -ErrorAction SilentlyContinue |
                  Sort-Object Length -Descending | Select-Object -First 1
         if ($found) { $modelPath = $found.FullName }
