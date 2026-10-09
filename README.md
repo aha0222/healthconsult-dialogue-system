@@ -148,6 +148,10 @@ python -m pip install torch==2.11.0+cu128 `
 
 # 再装 Kokoro 本身（这两个在 PyPI 上有，走镜像没问题）
 python -m pip install kokoro misaki[zh] -i https://pypi.tuna.tsinghua.edu.cn/simple
+# v1.1 中文模型要把正文里偶尔出现的「维生素D」「做个CT」念成英文，需要这个 spaCy 模型。
+# 不装也能跑（只是那几个英文片段没声音），但离线机器上一定要预装——
+# misaki 缺它时会当场 pip 下载，离线环境下就是一次必然失败的网络调用。
+python -m spacy download en_core_web_sm
 ```
 
 装完自查，应输出 `2.11.0+cu128 True`：
@@ -156,8 +160,11 @@ python -m pip install kokoro misaki[zh] -i https://pypi.tuna.tsinghua.edu.cn/sim
 .\.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-`+cu128` 对 RTX 5060（Blackwell / sm_120）是支持的，不用降级。Kokoro 的权重首次合成时从
-HuggingFace 拉取，`tts.py` 已默认把 `HF_ENDPOINT` 指向 `hf-mirror.com`，无需翻墙。
+`+cu128` 对 RTX 5060（Blackwell / sm_120）是支持的，不用降级。中文合成用的是
+`hexgrad/Kokoro-82M-v1.1-zh`（专训普通话，默认音色 `zf_001`；旧版 v1.0 的 `zf_xiaoxiao`
+不在新仓库里）。权重首次合成时从 HuggingFace 拉取（约 320MB），`tts.py` 已默认把
+`HF_ENDPOINT` 指向 `hf-mirror.com`，无需翻墙。换音色改 `voice_service/tts.py` 的
+`KOKORO_TORCH_VOICE`：`zf_001`～`zf_099` 女声、`zm_xxx` 男声。
 注意 pip **不支持单文件断点续传**，换源后从头下比在慢源上续剩下的快得多。
 
 ### 离线模式（可选：不要云端 Key 也能跑）
@@ -188,7 +195,7 @@ python tools\offline_check.py                                              # 拔
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 .\.venv\Scripts\python.exe -m pip install -r tools/requirements.txt
-.\.venv\Scripts\python.exe -m pytest -q          # 后端 + 语音契约测试（共 348 项）
+.\.venv\Scripts\python.exe -m pytest -q          # 后端 + 语音契约测试（共 363 项）
 ```
 
 ```bash

@@ -17,18 +17,23 @@
 from __future__ import annotations
 
 import io
+import logging
 import re
 import threading
 import wave
 from functools import lru_cache
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 
-# Kokoro torch GPU（82M，5060 实测实时率 0.032x，首选）
+# Kokoro torch GPU（82M，5060 实测实时率 0.03x，首选）
+# v1.1-zh 是专训普通话的版本（音色 zf_001…zf_099 / zm_xxx，比 v1.0 的
+# zf_xiaoxiao 更贴中文韵律）；发音修正表在两条链路上都生效，见 pronunciation.py。
 KOKORO_TORCH_LANG = "z"
-KOKORO_TORCH_VOICE = "zf_xiaoxiao"
-KOKORO_TORCH_REPO = "hexgrad/Kokoro-82M"
+KOKORO_TORCH_VOICE = "zf_001"
+KOKORO_TORCH_REPO = "hexgrad/Kokoro-82M-v1.1-zh"
 
 # Kokoro（sherpa-onnx，82M int8，中英混，速度快于实时，首选）
 KOKORO_DIR = MODELS_DIR / "kokoro-int8-multi-lang-v1_1"
@@ -60,6 +65,14 @@ SENTENCE_PAUSE_SEC = 0.10
 COMMA_PAUSE_SEC = 0.05
 # 单句超过该字符数时按逗号二次切分
 MAX_SUBSENT_CHARS = 45
+
+# 长句减速（v1.1-zh 专用）：该版训练数据基本在 100 token 以内，长输入会越念越赶。
+# 曲线取自官方 make_zh.py：83 音素以内不减速，之后线性放慢，0.6 倍封顶。
+# app 先按 ≤45 字切句，所以只有约四分之一的合成单元会命中；整条回复的时长代价
+# 实测 +0.6%（250～280 字的长回复 +0.3%～+0.9%），首句（通常很短）不受影响。
+SLOW_LONG_UNIT_START = 83
+SLOW_LONG_UNIT_FLOOR = 0.6
+SLOW_LONG_UNIT_SPAN = 500
 
 _MD_PATTERNS = [
     (re.compile(r"```[a-zA-Z]*\n?"), ""),          # 代码围栏
@@ -107,14 +120,25 @@ def _number_to_cn(m: "re.Match") -> str:
 
 
 _NUMBER_RE = re.compile(r"(?<![0-9.])[1-9][0-9]{0,3}(?![0-9.])")
+# 数字间的斜杠：血压/心率惯写 "150/95"，读作"一百五十比九十五"。
+# 不处理则斜杠会变成 G2P 的未知音素 ❓（只出声不出字），
+# 交给 cn2an 更糟——它按分数读成"九十五分之一百五十"，意思反了。
+_DIGIT_SLASH_RE = re.compile(r"(?<=[0-9])\s*/\s*(?=[0-9])")
 
 
-def normalize_for_tts(text: str) -> str:
-    """LLM 回复正文 → 适合 TTS 的口语化文本。"""
+def normalize_for_tts(text: str, convert_numbers: bool = True) -> str:
+    """LLM 回复正文 → 适合 TTS 的口语化文本。
+
+    convert_numbers=False 关掉自写的阿拉伯数字→中文规则，留给 G2P 里的
+    cn2an（misaki 中文前端的 an2cn）自己读——用于两条链路的读音对比。
+    """
     out = text or ""
     for pattern, repl in _MD_PATTERNS:
         out = pattern.sub(repl, out)
-    out = _NUMBER_RE.sub(_number_to_cn, out)
+    if convert_numbers:
+        # 先补数字间斜杠的口语读法，再逐个数转中文
+        out = _DIGIT_SLASH_RE.sub("比", out)
+        out = _NUMBER_RE.sub(_number_to_cn, out)
     # 连续标点收敛（含跨标点类型：冒号+逗号 → 单逗号），去句首悬垂标点
     out = re.sub(r"[ \t]+", " ", out)
     out = re.sub(r"([，。！？；：、])\s*(?=[，。！？；：、])", r"\1", out)
@@ -126,9 +150,9 @@ def normalize_for_tts(text: str) -> str:
     return out.strip()
 
 
-def split_sentences(text: str) -> list:
+def split_sentences(text: str, convert_numbers: bool = True) -> list:
     """按句末标点切句；超长句再按逗号/顿号二次切并降级停顿。返回 [(文本, 停顿秒)]。"""
-    text = normalize_for_tts(text)
+    text = normalize_for_tts(text, convert_numbers)
     if not text:
         return []
     rough = re.split(r"(?<=[。！？；：])", text)
@@ -153,6 +177,37 @@ def split_sentences(text: str) -> list:
 # ── 后端：Kokoro torch GPU（首选，5060 实时率 0.03x）────────────────
 
 _kokoro_torch_pipe = None
+_kokoro_en_pipe = None
+
+
+def _kokoro_en_callable():
+    """英文/拉丁片段的音素化回调（v1.1-zh 官方做法）。
+
+    v1.1 的中文前端把非中文片段一律换成未知音素 ❓，正文里偶尔出现的
+    "维生素D""做个CT" 就没了声音。官方 make_zh.py 接一条**无模型**的英文
+    管线把英文转成音素交给同一个声学模型。v1.0 走 legacy 路径，不读这个回调。
+    """
+    global _kokoro_en_pipe
+    try:
+        # 英文管线内部用 spaCy，缺 en_core_web_sm 时 misaki 会 **当场 pip 下载**。
+        # 离线机器上那是必失败的网络调用，所以先自查，缺了就跳过（不触发下载）。
+        import spacy
+
+        if not spacy.util.is_package("en_core_web_sm"):
+            logger.warning(
+                "缺 spaCy 英文模型 en_core_web_sm，正文里的英文将没有声音。"
+                "补：python -m spacy download en_core_web_sm（离线机器需预装）"
+            )
+            return None
+
+        from kokoro import KPipeline
+
+        if _kokoro_en_pipe is None:
+            _kokoro_en_pipe = KPipeline(lang_code="a", repo_id=KOKORO_TORCH_REPO, model=False)
+        return lambda text: next(_kokoro_en_pipe(text)).phonemes
+    except Exception as exc:  # 缺 espeak/misaki[en] 时退回未知音素
+        logger.warning("英文片段音素化不可用（%s），正文里的英文将没有声音", exc)
+        return None
 
 
 def _kokoro_torch_available() -> bool:
@@ -182,7 +237,8 @@ def _load_kokoro_torch():
 
     # 不传 device 时 KPipeline 默认 CPU（RT~0.9x）；显式上 GPU（RT~0.02x）
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    pipe = KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO, device=device)
+    pipe = KPipeline(lang_code=KOKORO_TORCH_LANG, repo_id=KOKORO_TORCH_REPO,
+                     device=device, en_callable=_kokoro_en_callable())
     _kokoro_torch_pipe = pipe
     return pipe
 
@@ -202,6 +258,25 @@ def _trim_silence(samples, sample_rate: int, threshold: float = 0.004,
     return samples[start:end]
 
 
+def _slow_speed(speed: float):
+    """给 KPipeline 的 speed 回调：音素数越多念得越慢（治长句末尾赶）。
+
+    KPipeline 接受 float 或 Callable[[int], float]；回调收到的是音素数。
+    乘在调用方给的 speed 上，所以 /tts 的 speed 参数语义不变，只是长句再慢一点。
+    """
+
+    def fn(len_ps: int) -> float:
+        factor = 1.0
+        if len_ps > SLOW_LONG_UNIT_START:
+            factor = max(
+                SLOW_LONG_UNIT_FLOOR,
+                1 - (len_ps - SLOW_LONG_UNIT_START) / SLOW_LONG_UNIT_SPAN,
+            )
+        return speed * factor
+
+    return fn
+
+
 def _kokoro_torch_synthesize(pipe, text: str, speed: float) -> tuple:
     """整段交给 KPipeline（内部按句切分），逐句裁剪拖尾静音后拼接停顿。
 
@@ -212,7 +287,8 @@ def _kokoro_torch_synthesize(pipe, text: str, speed: float) -> tuple:
 
     with torch.inference_mode():
         chunks = list(
-            pipe(text, voice=KOKORO_TORCH_VOICE, speed=max(0.5, min(2.0, speed)))
+            pipe(text, voice=KOKORO_TORCH_VOICE,
+                 speed=_slow_speed(max(0.5, min(2.0, speed))))
         )
     audios = [
         _trim_silence(c.audio.numpy(), 24000)
