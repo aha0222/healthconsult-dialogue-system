@@ -267,3 +267,94 @@ def test_stale_pooled_client_is_replaced(monkeypatch, fake_endpoint):
     assert out == REPLY
     assert calls["n"] == 1, "坏 client 应当只被尝试一次，随后即被丢弃"
     assert local_llm._ENDPOINT_CLIENTS.get(key) is not dead
+
+
+def _dead_client(base, *, on_create):
+    """把进程级缓存里的 client 换成一个"探活能过、生成时坏掉"的桩。
+
+    `on_create()` 决定生成时抛什么。返回 (缓存 key, 记录生成调用次数的 dict)。
+    """
+    calls = {"create": 0}
+
+    class _OkModels:
+        def list(self):
+            return None  # 探活通过：只模拟"连接坏了"，不混入"端点坏了"
+
+    class _Completions:
+        def create(self, **kwargs):
+            calls["create"] += 1
+            on_create()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Dead:
+        models = _OkModels()
+        chat = _Chat()
+
+        def with_options(self, **_kwargs):
+            return self
+
+    timeout = local_llm._env_float("OFFLINE_LLM_TIMEOUT", local_llm.DEFAULT_TIMEOUT)
+    key = (f"{base}/v1", timeout)
+    local_llm._ENDPOINT_CLIENTS[key] = _Dead()
+    return key, calls
+
+
+def test_stale_connection_on_chat_is_retried(monkeypatch, fake_endpoint):
+    """空闲后第一个请求不能白失败：坏连接要换新连接重试一次。
+
+    复现"放了一会儿没人说话，一开口第一句就 502"：端点回收了空闲的 keep-alive
+    连接，而 client 是进程级缓存的、且一直是 `max_retries=0`（防 CPU 档超时被
+    放大成三次），SDK 因此不再帮我们透明重连。修复前 `chat()` 只淘汰坏 client
+    然后抛错，表现为"第一个请求必失败、第二个才好"。
+    """
+    import httpx
+    from openai import APIConnectionError
+
+    base, requests = fake_endpoint
+    monkeypatch.setenv("OFFLINE_LLM_ENDPOINT", base)
+    settings = _settings(monkeypatch)
+
+    def boom():
+        raise APIConnectionError(
+            request=httpx.Request("POST", "http://127.0.0.1:1/v1/chat/completions")
+        )
+
+    key, calls = _dead_client(base, on_create=boom)
+    dead = local_llm._ENDPOINT_CLIENTS[key]
+
+    llm = LocalLLM(settings)
+    out = llm.chat([{"role": "user", "content": "我大便发黑"}])
+
+    assert out == REPLY
+    assert calls["create"] == 1, "坏连接只应被尝试一次，随后即换新连接"
+    assert local_llm._ENDPOINT_CLIENTS.get(key) is not dead
+    assert requests, "重试应当真的打到了端点"
+
+
+def test_timeout_is_not_retried(monkeypatch, fake_endpoint):
+    """超时不算"坏连接"：不重试。
+
+    `APITimeoutError` 是 `APIConnectionError` 的子类，若一并重试，CPU 档一次
+    600s 的超时会被翻倍成 20 分钟，还可能重复推理。这条锁住这个刻意的排除。
+    """
+    import httpx
+    from openai import APITimeoutError
+
+    base, _ = fake_endpoint
+    monkeypatch.setenv("OFFLINE_LLM_ENDPOINT", base)
+    settings = _settings(monkeypatch)
+
+    def boom():
+        raise APITimeoutError(
+            request=httpx.Request("POST", "http://127.0.0.1:1/v1/chat/completions")
+        )
+
+    _, calls = _dead_client(base, on_create=boom)
+
+    llm = LocalLLM(settings)
+    with pytest.raises(LLMError):
+        llm.chat([{"role": "user", "content": "我大便发黑"}])
+
+    assert calls["create"] == 1, "超时不应重试"

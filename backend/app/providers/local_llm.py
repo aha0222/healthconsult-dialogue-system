@@ -107,6 +107,20 @@ def _is_connection_error(exc: BaseException) -> bool:
     return isinstance(exc, APIConnectionError)
 
 
+def _is_retryable_connection_error(exc: BaseException) -> bool:
+    """"连不上"（而非"等太久"）——换一条新连接重试一次是安全且值得的。
+
+    刻意排除 `APITimeoutError`：它也是 `APIConnectionError` 的子类，但它意味着
+    请求可能已经在端点侧跑起来了，重试等于让 CPU 档的一次超时（默认 600s）翻倍，
+    且可能重复计费/重复推理。超时不重试，交给调用方按原有超时失败。
+    """
+    try:
+        from openai import APITimeoutError
+    except ImportError:  # pragma: no cover - 依赖缺失时由调用方另行报错
+        return False
+    return _is_connection_error(exc) and not isinstance(exc, APITimeoutError)
+
+
 def _drop_endpoint_clients() -> None:
     """丢弃所有缓存的端点 client，让下次请求重建连接。
 
@@ -189,13 +203,24 @@ class _EndpointBackend:
     def create(self, model, messages, temperature, max_tokens, stream):
         # 不发 extra_body：`thinking` 是 DeepSeek 专有字段，
         # 严格 OpenAI 兼容的端点（vLLM/TGI 等）会直接 400。
-        return self.client().chat.completions.create(
+        kwargs = dict(
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
         )
+        try:
+            return self.client().chat.completions.create(**kwargs)
+        except Exception as exc:
+            if not _is_retryable_connection_error(exc):
+                raise
+            # 池里那条 keep-alive 连接已经死了（端点重启、空闲被回收）。client 一直是
+            # `max_retries=0`（防 CPU 档超时被放大成三次），代价是 SDK 不再帮我们
+            # 透明重连——于是表现为"空闲一会儿后**第一个请求必失败**，第二个才好"，
+            # 在演示/验收时就是"开口第一句就 502"。这里自己换新连接重试一次。
+            logger.warning("本地端点连接失败（%s），丢弃缓存连接后换新重试一次", exc)
+            return self.client(fresh=True).chat.completions.create(**kwargs)
 
 
 class _LlamaCppBackend:

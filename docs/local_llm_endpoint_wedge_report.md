@@ -132,3 +132,33 @@ def probe(self, timeout: float) -> None:
 后果：照文档"关掉再重起"会失败——`start.ps1` 里的 uvicorn 绑不上 8000。
 
 而第六节给出的**唯一恢复手段就是重启**，所以这条必须一起修，否则现场恢复不了。
+
+## 八、同一族的第二个缺口：空闲后**第一个**请求仍会失败（已修）
+
+第三节的修复（连接错误时丢弃缓存的 client）解决的是"**此后每次**都复用坏连接、
+只有重启后端才能恢复"。但它留下一个更隐蔽的缺口：**丢弃发生在抛错之后**，
+所以那一次请求本身还是失败了 —— 表现是"端点闲着（或重启）之后，
+**第一个请求必 502，第二个开始才正常**"。
+
+复现（2026-10-10，演示前实际撞上）：7B/GPU 档空闲约一个半小时，重新提问，
+第一句返回 502 `Bad Gateway`，随后连续五个问题全部正常。
+
+**根因链**：client 是进程级缓存的 → 端点回收空闲 keep-alive 连接（或端点重启）→
+缓存的连接已死 → 首次请求抛 `APIConnectionError` → `chat()` 只 `_invalidate()` 然后
+抛错 → 502。而 `max_retries=0`（为防 CPU 档一次超时被放大成三次，见
+`docs/offline_two_tier_measurements.md`）**同时关掉了 SDK 对失效 keep-alive 的透明重连**
+—— 这个善意的设置正是缺口的一部分。
+
+**修法**：在 `_EndpointBackend.create()`（`chat` 与 `chat_stream` 的唯一收口）上
+对**连接类**错误换新连接重试一次：
+
+- 只重试一次，`max_retries=0` 保持不变；
+- **刻意排除 `APITimeoutError`**：它也是 `APIConnectionError` 的子类，但它意味着请求
+  可能已在端点侧跑起来，重试会把 CPU 档一次 600s 超时翻倍成 20 分钟，还可能重复推理。
+  用 `_is_retryable_connection_error()` 表达这个区分。
+
+**验证**：
+- 回归测试 `test_stale_connection_on_chat_is_retried`（撤掉修复后确实失败）与
+  `test_timeout_is_not_retried`（锁住超时不重试的刻意排除）。
+- 真实场景：热请求建立池化连接 → 仅重启 `llama-server`（后端进程不动）→
+  不做任何预热直接提问 → **首个请求返回 200**（修复前此处 502）。
