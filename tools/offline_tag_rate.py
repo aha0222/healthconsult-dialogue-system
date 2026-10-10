@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""测量本地模型输出 [RISK] / [SCENE] 标记的比例与正确率（标签输出率）。
+"""测量模型输出 [RISK] / [SCENE] 标记的比例与正确率（标签输出率）。
 
 为什么单独量这个：本地小模型**不保证**吐标签，标记缺失时会退回关键词推断
 （`backend/app/dialogue/markers.py`）。`tools/offline_check.py` 量的是那个兜底
 的漏检率，本脚本量的是更上游的一环——模型自己有没有吐、吐得对不对。
 
-用法（先跑 scripts/offline/start.ps1 把端点起起来）：
+用法（本地档先跑 scripts/offline/start.ps1 把端点起起来；在线档加 --online）：
     .venv/Scripts/python.exe -X utf8 tools/offline_tag_rate.py [样例数] [--label 档位名] [--endpoint URL]
 
 样例取自 backend/tests/eval/risk_cases.jsonl（自带 expected_risk / expected_scenes）。
@@ -42,16 +42,22 @@ def _arg(flag: str, default: str) -> str:
 
 def main() -> None:
     n = int(_arg("--n", next((a for a in sys.argv[1:] if a.isdigit()), "20")))
-    label = _arg("--label", "未标注档位")
+    online = "--online" in sys.argv
+    label = _arg("--label", "在线档（云端）" if online else "未标注档位")
     endpoint = _arg("--endpoint", "http://127.0.0.1:8090")
 
-    os.environ.update({
-        "OFFLINE_MODE": "1",
-        "OFFLINE_LLM_BACKEND": "endpoint",
-        "OFFLINE_LLM_ENDPOINT": endpoint,
-        "DEEPSEEK_API_KEY": "sk-local",
-        "EMBEDDING_BACKEND": "hash",
-    })
+    if online:
+        # 在线档：用 .env 里的真实 key（config 导入时已 load_dotenv），走云端模型。
+        # 同一个指标换个档位量一次——它自己的纪律就是"数据必须标注档位"。
+        os.environ.update({"OFFLINE_MODE": "0"})
+    else:
+        os.environ.update({
+            "OFFLINE_MODE": "1",
+            "OFFLINE_LLM_BACKEND": "endpoint",
+            "OFFLINE_LLM_ENDPOINT": endpoint,
+            "DEEPSEEK_API_KEY": "sk-local",
+            "EMBEDDING_BACKEND": "hash",
+        })
     settings = Settings.from_env()   # 必须用 from_env：Settings() 只给默认值（offline_mode=False）
     llm = get_llm(settings)
 

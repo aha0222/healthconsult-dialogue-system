@@ -1,11 +1,12 @@
 ﻿# 小暖健康陪护 · 一键运行脚本（Windows）
-# 用法: powershell -ExecutionPolicy Bypass -File scripts\run.ps1 [-SetupOnly] [-NoTools] [-ListenHost H] [-Port P]
+# 用法: powershell -ExecutionPolicy Bypass -File scripts\run.ps1 [-SetupOnly] [-NoTools] [-ListenHost H] [-Port P] [-Voice]
 [CmdletBinding()]
 param(
     [switch]$SetupOnly,
     [switch]$NoTools,
     [string]$ListenHost = "127.0.0.1",
-    [int]$Port = 8000
+    [int]$Port = 8000,
+    [switch]$Voice
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,4 +75,26 @@ if ($SetupOnly) {
 
 Write-Host "==> 启动后端：http://$ListenHost`:$Port"
 Write-Host "    前端：浏览器打开 frontend/chat.html，在设置里确认后端地址"
-& $venvPython -m uvicorn backend.app.main:app --host $ListenHost --port $Port
+
+# ── 可选：一并起语音服务（云端模式下的演示用）────────────────────
+# 主路径是在线档，但朗读仍走本地 voice_service（省调用、低延迟、断网也能播报）。
+$voiceProc = $null
+if ($Voice) {
+    $env:VOICE_ENABLED = "1"
+    $env:SPEAKER_DETECT_ENABLED = "1"
+    Write-Host "==> 启动语音服务：http://127.0.0.1:8100（VOICE_ENABLED=1）"
+    $voiceLog = Join-Path $Root ".voice.out.log"
+    $voiceErr = Join-Path $Root ".voice.err.log"
+    $voiceProc = Start-Process -FilePath $venvPython -ArgumentList @("-m", "voice_service") `
+        -PassThru -NoNewWindow `
+        -RedirectStandardOutput $voiceLog -RedirectStandardError $voiceErr
+}
+
+try {
+    & $venvPython -m uvicorn backend.app.main:app --host $ListenHost --port $Port
+} finally {
+    if ($voiceProc -and -not $voiceProc.HasExited) {
+        Stop-Process -Id $voiceProc.Id -Force -ErrorAction SilentlyContinue
+        Write-Host "  已停止语音服务（PID $($voiceProc.Id)）"
+    }
+}

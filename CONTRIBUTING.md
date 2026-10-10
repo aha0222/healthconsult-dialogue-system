@@ -20,13 +20,13 @@ python -m venv .venv
 ## 运行测试
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q          # 全量：backend/tests + voice_service/tests（348 项）
+.\.venv\Scripts\python.exe -m pytest -q          # 全量：backend/tests + voice_service/tests（363 项）
 .\.venv\Scripts\python.exe -m pytest backend/tests -q
 ```
 
 仓库根目录的 `pytest.ini` 已配置 `pythonpath = .` 与 `testpaths`，也可直接 `pytest`。
 
-**安全改动必须过红队回归集**：`backend/tests/redline_cases.jsonl`（54 例，随 CI 执行）。
+**安全改动必须过红队回归集**：`backend/tests/redline_cases.jsonl`（56 例，随 CI 执行）。
 新增或修改 `safety_checker` 关键词 / 兜底话术 / 风险规则时，必须同步补充用例。
 
 ## 目录归属（第三阶段起的隔离约定）

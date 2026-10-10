@@ -42,11 +42,11 @@
 | `frontend/` | 网页界面（人格展示 + 在线对话 + 语音接线 `scripts/voice.js`） | 可用 |
 | `backend/` | 对话系统后端：编排、三层安全、HTTP API、SQLite 持久化 | 可用 |
 | `skills/healthconsult-assistant-skill/` | 小暖回复规范包（纯规范，零 Python；语料 v0.4.0 共 **1725 条 / 24 场景**） | 可用 |
-| `voice_service/` | 独立语音服务：本地 ASR（Paraformer）+ TTS（Piper）+ 流式/打断，默认 8100 端口 | 可用 |
+| `voice_service/` | 独立语音服务：本地 ASR（Paraformer）+ TTS（Kokoro v1.1-zh，GPU 优先 / sherpa-onnx 回退）+ 流式/打断，默认 8100 端口 | 可用 |
 | `backend/app/providers/` + `scripts/offline/` | 离线运行时：本地 LLM（llama.cpp 端点优先）+ 一键冷启动/打包/拔网线自检 | 可用 |
 | `tools/` | 离线数据工具：语料生成、清洗、质检、分布验收、人格评测、离线自检 | 可用 |
-| `backend/tests/` | 后端测试 + **54 例红队安全回归集**（CI 常驻） | 可用 |
-| `docs/` | 系统架构、语料建设报告、离线交付报告、人格评测报告 | 可用 |
+| `backend/tests/` | 后端测试 + **56 例红队安全回归集**（CI 常驻） | 可用 |
+| `docs/` | **项目现状与未来方向**（总览，建议先看）、中期汇报手册、架构、语料建设、离线交付、说话人评测、TTS 选型、紧急通知设计等 15 篇 | 可用 |
 | `scripts/` | 一键运行脚本（`run.sh` / `run.ps1`）+ `offline/`（离线包） | 可用 |
 
 **skill 与系统相互独立**：`skills/` 里只有规范、规则、示例数据，不含任何可执行代码；前端、后端、工具都可以替换，skill 本身保持可复用。
@@ -241,7 +241,7 @@ CI（`.github/workflows/ci.yml`）每次推送自动执行：ruff → 后端全�
 | 第二层 | 本地关键词红线快检（`safety_checker`） | <1ms | 开药调药、怂恿开门、轻视心理危机等硬红线，命中即替换安全话术；小模型漏标时的定级兜底 |
 | 第三层 | LLM 语义复核（默认 R3/R2b，离线档全等级） | 一次 LLM 调用 | 抓关键词漏掉的换说法越界 |
 
-- 红队回归集 `backend/tests/redline_cases.jsonl`（**54 例**）随 CI 执行；**新增安全规则必须补用例**。
+- 红队回归集 `backend/tests/redline_cases.jsonl`（**56 例**）随 CI 执行；**新增安全规则必须补用例**。
 - 高危命中写审计与告警（可配 webhook）；说话人角色**不改变任何风险判定**——家属问"能不能加药"与老人自问，红线一致。
 - 离线档实测闭环：本地模型漏标 → 关键词兜底判 R2b/E1 → 语义复核触发 → 替换预置安全话术。
 
