@@ -8,6 +8,8 @@ exclude = [
     "skills",
     "frontend",
     "tests/results",
+    # 第三方运行时源码（CosyVoice2 / Matcha / WeText），原样 vendored，不参与本项目 lint
+    "voice_service/vendor",
 ]
 
 [tool.ruff.lint]

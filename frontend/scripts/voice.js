@@ -23,11 +23,19 @@
     probed: false,
     asrReady: false,
     ttsReady: false,
+    cloudTtsReady: false,
     baseUrl: DEFAULT_BASE,
   };
 
   // 录音运行时
   var recording = null;
+
+  function engineMode() {
+    try {
+      var saved = JSON.parse(global.localStorage.getItem("xiaonuan_settings") || "{}");
+      return saved.voiceEngine === "cloud" ? "cloud" : "local";
+    } catch (e) { return "local"; }
+  }
 
   function baseUrl() {
     try {
@@ -51,6 +59,7 @@
     state.probed = false;
     state.asrReady = false;
     state.ttsReady = false;
+    state.cloudTtsReady = false;
     lastProbeAt = Date.now();
     var base = baseUrl();
     return fetchWithTimeout(base + "/health")
@@ -62,17 +71,23 @@
         state.baseUrl = base;
         state.asrReady = !!health.asr;
         state.ttsReady = !!health.tts;
+        state.cloudTtsReady = !!health.cloud_tts;
         state.probed = true;
-        return { asr: state.asrReady, tts: state.ttsReady };
+        return { asr: state.asrReady, tts: state.ttsReady, cloudTts: state.cloudTtsReady };
       })
       .catch(function () {
         state.probed = true;
-        return { asr: false, tts: false };
+        return { asr: false, tts: false, cloudTts: false };
       });
   }
 
   function canListen() { return state.probed && state.asrReady; }
-  function canSpeak() { return state.probed && state.ttsReady; }
+  function canSpeak() {
+    if (!state.probed) return false;
+    return engineMode() === "cloud"
+      ? (state.ttsReady || state.cloudTtsReady)
+      : state.ttsReady;
+  }
 
   /* 冷启动时页面常常先于语音服务就绪打开（start.ps1 一拉起来就开浏览器，
      而 Kokoro 加载+预热还要十几秒）：一次探活失败后若不再重试，整场都会
@@ -83,11 +98,11 @@
 
   function ensureReady() {
     var fresh = Date.now() - lastProbeAt < PROBE_RETRY_MS;
-    if (state.probed && (state.asrReady || state.ttsReady)) {
-      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady });
+    if (state.probed && (state.asrReady || canSpeak())) {
+      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady, cloudTts: state.cloudTtsReady });
     }
     if (fresh) {
-      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady });
+      return Promise.resolve({ asr: state.asrReady, tts: state.ttsReady, cloudTts: state.cloudTtsReady });
     }
     return probe();
   }
@@ -252,6 +267,11 @@
     }
   }
 
+  // 是否有句子正在播：供前端判断"老人在小暖没说完时插话"（打断信号）
+  function isSpeaking() {
+    return !!currentPlayer;
+  }
+
   // 请求 /tts 并封装成 Audio 对象（服务端 LRU 缓存使重复文本零合成）
   function requestTts(text) {
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
@@ -259,7 +279,7 @@
     return fetchWithTimeout(state.baseUrl + "/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9 }),
+      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9, engine: engineMode() }),
     }, 120000)
       .then(function (resp) {
         if (resp.status === 501) return null;
@@ -291,10 +311,10 @@
   }
 
   function speak(text) {
-    if (!state.ttsReady) {
+    if (!canSpeak()) {
       // 未就绪（含"页面早于服务打开"的首播）：按需重探一次再决定
-      return ensureReady().then(function (caps) {
-        if (caps.tts) return speak(text);
+      return ensureReady().then(function () {
+        if (canSpeak()) return speak(text);
         return false;
       });
     }
@@ -361,5 +381,6 @@
     cancelListening: cancelListening,
     speak: speak,
     stopSpeaking: stopSpeaking,
+    isSpeaking: isSpeaking,
   };
 })(window);

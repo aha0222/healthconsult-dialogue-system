@@ -47,6 +47,9 @@
     EXEMPLAR_EMBEDDING_BACKEND 运行时检索的嵌入后端，默认 hash（零下载、可移植；可设 local/api）
     VOICE_ENABLED         是否启用语音能力（独立 voice_service），默认关闭
     OFFLINE_MODE          是否用本地/私有端点 LLM 替代云端，默认关闭（走云端）
+    LLM_FALLBACK_ENABLED  在线档云端连不上时是否切本地档（默认关闭＝现有行为）
+    LLM_FALLBACK_PROBE_SECONDS 降级后每隔多少秒回探一次云端，0＝不自动回探，默认 60
+    AUDIT_RETENTION_DAYS  审计记录保留天数；0（默认）＝永久保留、不清理
     SPEAKER_DETECT_ENABLED 是否启用说话人角色识别（默认关闭，恒按老人处理）
 """
 
@@ -194,6 +197,11 @@ class Settings:
     voice_enabled: bool = False
     # 离线/私有化：用本地或私有端点 LLM 替代云端（providers.get_llm 依据此切换）
     offline_mode: bool = False
+    # 在线档的网络兜底：云端连接级失败时切到本地档（默认关闭，保持现有行为）
+    llm_fallback_enabled: bool = False
+    llm_fallback_probe_seconds: int = 60
+    # 审计留存：0＝永久保留（默认，与从前一致）。定了天数才清理，只删审计表。
+    audit_retention_days: int = 0
     # 说话人角色识别（关闭时恒按"老人本人"处理，与现状一致）
     speaker_detect_enabled: bool = False
 
@@ -283,6 +291,13 @@ class Settings:
             max_profile_chars=int(os.environ.get("MAX_PROFILE_CHARS", "1000")),
             voice_enabled=_to_bool(os.environ.get("VOICE_ENABLED"), False),
             offline_mode=_to_bool(os.environ.get("OFFLINE_MODE"), False),
+            llm_fallback_enabled=_to_bool(
+                os.environ.get("LLM_FALLBACK_ENABLED"), False
+            ),
+            llm_fallback_probe_seconds=int(
+                os.environ.get("LLM_FALLBACK_PROBE_SECONDS", "60")
+            ),
+            audit_retention_days=int(os.environ.get("AUDIT_RETENTION_DAYS", "0")),
             speaker_detect_enabled=_to_bool(
                 os.environ.get("SPEAKER_DETECT_ENABLED"), False
             ),

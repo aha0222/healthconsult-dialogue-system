@@ -53,7 +53,36 @@ def get_llm(settings=None):
             ) from exc
         return LocalLLM(settings)
 
-    return LLMClient(settings)
+    client = LLMClient(settings)
+
+    # 在线档的网络兜底：云端连不上时切本地档。默认关闭＝现有行为（报错即 502）。
+    if getattr(settings, "llm_fallback_enabled", False):
+        from .fallback import FallbackLLM  # noqa: PLC0415
+        from .local_llm import LocalLLM  # noqa: PLC0415
+
+        return FallbackLLM(
+            primary=client,
+            fallback_factory=lambda: LocalLLM(settings),
+            settings=settings,
+            enabled=True,
+        )
+
+    return client
 
 
-__all__ = ["get_llm"]
+def llm_status(settings=None) -> dict:
+    """当前生效档位与是否已降级（供 /api/health 暴露）。"""
+    from ..config import get_settings
+
+    settings = settings or get_settings()
+    if getattr(settings, "offline_mode", False):
+        return {"llm_backend": "local", "llm_degraded": False, "llm_degraded_reason": ""}
+    if not getattr(settings, "llm_fallback_enabled", False):
+        return {"llm_backend": "cloud", "llm_degraded": False, "llm_degraded_reason": ""}
+    from .fallback import backend_status, FallbackLLM  # noqa: PLC0415
+
+    key = FallbackLLM.state_key(settings)
+    return backend_status(key)
+
+
+__all__ = ["get_llm", "llm_status"]

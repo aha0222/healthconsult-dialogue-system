@@ -383,6 +383,9 @@
   };
 
   $("btnTts").onclick = async () => {
+    const btn = $("btnTts");
+    btn.disabled = true;
+    btn.textContent = "合成中…（约几秒）";
     try {
       const r = await fetch(base() + "/tts", {
         method: "POST",
@@ -391,10 +394,20 @@
       });
       if (r.status !== 200) { log("[/tts] " + r.status + " " + (await r.text())); return; }
       const buf = await r.arrayBuffer();
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
       currentAudio = new Audio(URL.createObjectURL(new Blob([buf], { type: "audio/wav" })));
-      currentAudio.play();
-      log("[/tts] 播放中…");
+        try {
+          await currentAudio.play();
+          log("[/tts] 播放中…");
+          currentAudio.onended = () => { log("[/tts] 播放结束"); };
+        } catch (pe) {
+          log("[/tts] 声音已生成，但浏览器拦截了自动播放，请再点一次按钮。");
+        }
     } catch (e) { log("[/tts] 失败：" + e.message); }
+    finally {
+      btn.disabled = false;
+      btn.textContent = "3. 合成播放（/tts）";
+    }
   };
 
   // ---- 流式识别 + 打断 ----

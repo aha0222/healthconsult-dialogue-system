@@ -1,7 +1,7 @@
-"""说话人识别评测：数据在 tests/eval/speaker_cases.jsonl（163 例角色类 + 12 例安全类）。
+"""说话人识别评测：数据在 tests/eval/speaker_cases.jsonl（219 例角色类 + 18 例安全类）。
 
 本文件是**验收门禁**，与 test_evaluation.py 的 ``test_local_predictor_meets_baseline``
-同构：断言 163 例全部判对，并按「误切 / 漏判」两个方向分层盯，而不是只看总体
+同构：断言 219 例全部判对，并按「误切 / 漏判」两个方向分层盯，而不是只看总体
 准确率——舒适区样本占题量 41% 且一贯全对，只看总分会被掩盖（旧评测集 67 例
 "satisfies 85%" 却测不出任何问题，见 docs/speaker_eval_design.md 第 1 节）。
 
@@ -33,12 +33,12 @@ ACCEPTANCE_ACCURACY_MIN = 0.85  # 设计文档第 7 节写在纸上的那条整�
 
 EXPECTED_CATEGORY_COUNTS = {
     "0基线": 67,
-    "1引用转述": 24,
-    "2a无称呼可判": 12,
-    "2b无称呼模糊": 12,
-    "3双人对话": 16,
-    "4方言口语": 20,
-    "5历史延续": 12,
+    "1引用转述": 35,
+    "2a无称呼可判": 18,
+    "2b无称呼模糊": 19,
+    "3双人对话": 28,
+    "4方言口语": 32,
+    "5历史延续": 20,
 }
 
 
@@ -82,7 +82,7 @@ def test_dataset_shape_matches_design():
 
 
 def test_accuracy_meets_floor():
-    """设计文档第 7 节写在纸上的整体门槛：163 例 ≥85%。"""
+    """设计文档第 7 节写在纸上的整体门槛：219 例 ≥85%。"""
     accuracy, _, _, detail = score(load_role_cases())
     assert accuracy >= ACCEPTANCE_ACCURACY_MIN, detail
 
@@ -124,5 +124,5 @@ def test_safety_cases_recorded_not_scored_here():
     family 走 /api/chat 比对 risk_level 与兜底话术，函数层测不到。
     """
     safety = [row for row in load_rows() if not row.get("expected")]
-    assert len(safety) == 12
+    assert len(safety) == 18
     assert all(row.get("assert") for row in safety)

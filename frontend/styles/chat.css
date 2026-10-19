@@ -372,6 +372,46 @@ body[data-risk="R2b"] {
   border-color: var(--c-primary);
 }
 
+/* ── 赞 / 踩（人工反馈信号）───────────────────────────────── */
+.feedback {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-full);
+  background: var(--c-paper);
+  border: 1px solid var(--c-border);
+  color: var(--c-ink-muted);
+  transition: background-color var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+
+.feedback-btn:hover {
+  background: var(--c-primary-soft);
+  border-color: var(--c-primary);
+  color: var(--c-primary-strong);
+}
+
+/* 已选中的那一个：高亮，老人一眼看出自己评过了 */
+.feedback-btn.is-active {
+  background: var(--c-primary-soft);
+  border-color: var(--c-primary);
+  color: var(--c-primary-strong);
+}
+
+/* 要等 done 事件带回 audit_id 才能点，未就绪前先禁用 */
+.feedback-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+
 /* ── 正在输入 ─────────────────────────────────────────────── */
 .typing {
   display: flex;

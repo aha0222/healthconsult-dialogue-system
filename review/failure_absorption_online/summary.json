@@ -1,0 +1,71 @@
+{
+  "source": "标签率实测 scripts\\offline\\tag_rate.jsonl",
+  "total_evaluated": 177,
+  "failures": 12,
+  "channels": {
+    "keyword": 0,
+    "skill_md": 12,
+    "negative": 12
+  },
+  "by_direction": {
+    "偏低": 12
+  },
+  "by_want_risk": {
+    "R3": 12
+  },
+  "max_rule": {
+    "scope": "全量 177 条",
+    "before_miss": 12,
+    "after_miss": 0,
+    "before_over": 3,
+    "after_over": 11,
+    "over_cases": [
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      }
+    ]
+  },
+  "out_dir": "review\\failure_absorption_online",
+  "note": "三路只产出待审清单；关键词表与 SKILL.md 均未改动。"
+}

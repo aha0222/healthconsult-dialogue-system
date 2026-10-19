@@ -76,6 +76,8 @@
   var sessionListEl = $("sessionList");
   var personalitySelect = $("personalitySelect");
   var backendUrlEl = $("backendUrl");
+  var voiceUrlEl = $("voiceUrl");
+  var voiceEngineEl = $("voiceEngine");
   var backendApiKeyEl = $("backendApiKey");
   var autoTtsEl = $("autoTts");
   var hcModeEl = $("hcMode");
@@ -127,6 +129,15 @@
     });
   }
 
+  /* 反馈是旁路信号：提交失败只提示，不影响对话本身 */
+  function postJson(path, body) {
+    return fetchJson(backendBase() + path, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body || {}),
+    });
+  }
+
   function setListMessage(listEl, text) {
     if (!listEl) return;
     listEl.innerHTML = "";
@@ -142,6 +153,7 @@
     messagesEl.textContent = "";
     welcomeEl.hidden = false;
     setRiskAmbient(null);
+    lastAssistantMsg = null;
   }
 
   function formatTime(iso) {
@@ -280,6 +292,10 @@
     if (!base) return;
     fetchJson(base + "/api/health")
       .then(function (health) {
+        // 上次断网时后端切了本地档：页面一打开就说清楚，别让老人自己猜
+        if (health.llm_degraded) {
+          notifyDegraded("网络连不上，小暖先用本地模型陪您，回复可能慢一些。");
+        }
         if (!health.voice_enabled) return "stop";   // 后端没开语音：不必重试
         voiceWanted = true;
         return XiaonuanVoice.probe().then(function (caps) {
@@ -303,6 +319,8 @@
     }
     if (saved.backendUrl) backendUrlEl.value = saved.backendUrl;
     if (saved.backendApiKey) backendApiKeyEl.value = saved.backendApiKey;
+    if (saved.voiceUrl) voiceUrlEl.value = saved.voiceUrl;
+    if (saved.voiceEngine) voiceEngineEl.value = saved.voiceEngine;
     if (saved.personality && PERSONALITY_DESCS[saved.personality]) {
       personalitySelect.value = saved.personality;
       currentPersonality = saved.personality;
@@ -325,6 +343,8 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       backendUrl: backendUrl,
       backendApiKey: backendApiKey,
+      voiceUrl: voiceUrlEl ? voiceUrlEl.value.trim() : "",
+      voiceEngine: voiceEngineEl ? voiceEngineEl.value : "local",
       personality: personality,
       autoTts: autoTts,
       fontSize: currentFontSize,
@@ -705,6 +725,84 @@
       });
   }
 
+  /* ── 人工反馈信号（赞 / 踩 / 打断）────────────────────────
+     audit 表原先只有客观信号（violations / fallback_used / 风险），没有"好坏信号"。
+     这里把老人的赞/踩与"没听完就问下一句"变成审计字段：自我改进的瓶颈是信号，
+     不是算法——有了信号才谈得上挖失败集。 */
+  var lastAssistantMsg = null; // 最近一条小暖回复（打断时指认被打断的是哪条）
+  var degradedNoticed = false; // 降级提示只说一次，别每轮都唠叨
+
+  /* 云端断了、后端切了本地档：明确告诉老人，但只提醒一次 */
+  function notifyDegraded(text) {
+    if (degradedNoticed || !text) return;
+    degradedNoticed = true;
+    showSystemMsg(text);
+  }
+
+  function createFeedback(meta) {
+    var state = { auditId: null, rating: 0 };
+    var wrap = document.createElement("span");
+    wrap.className = "feedback";
+    var buttons = {};
+    [
+      ["up", "i-thumb-up", "有帮助", 1],
+      ["down", "i-thumb-down", "没帮上", -1],
+    ].forEach(function (spec) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "feedback-btn";
+      btn.disabled = true; // 要等 done 带回 audit_id
+      btn.setAttribute("aria-label", spec[2]);
+      btn.title = spec[2];
+      btn.appendChild(icon(spec[1]));
+      btn.addEventListener("click", function () {
+        // 再点一次同一个＝撤销
+        commitFeedback(state, buttons, state.rating === spec[3] ? 0 : spec[3]);
+      });
+      buttons[spec[0]] = btn;
+      wrap.appendChild(btn);
+    });
+    meta.appendChild(wrap);
+    return { state: state, buttons: buttons };
+  }
+
+  function commitFeedback(state, buttons, rating) {
+    if (state.auditId == null) return;
+    state.rating = rating;
+    buttons.up.classList.toggle("is-active", rating === 1);
+    buttons.down.classList.toggle("is-active", rating === -1);
+    postJson("/api/audit/" + state.auditId + "/feedback", { rating: rating })
+      .catch(function () { showSystemMsg("评价没提交上，稍后再试", true); });
+  }
+
+  function enableFeedback(msg, auditId) {
+    if (!msg || !msg.feedback || typeof auditId !== "number") return;
+    msg.feedback.state.auditId = auditId;
+    msg.feedback.buttons.up.disabled = false;
+    msg.feedback.buttons.down.disabled = false;
+  }
+
+  function isSpeakingNow() {
+    if (window.XiaonuanVoice && XiaonuanVoice.isSpeaking && XiaonuanVoice.isSpeaking()) {
+      return true;
+    }
+    return !!(synth && synth.speaking);
+  }
+
+  /* 老人在小暖还没说完时就发了下一句 → 上一条被打断。先停播报再记账。 */  function reportInterruptIfPlaying() {
+    if (!isSpeakingNow()) return;
+    if (window.XiaonuanVoice && XiaonuanVoice.stopSpeaking) {
+      XiaonuanVoice.stopSpeaking();
+    } else if (synth && synth.speaking) {
+      synth.cancel();
+    }
+    if (!lastAssistantMsg || !lastAssistantMsg.feedback) return;
+    var id = lastAssistantMsg.feedback.state.auditId;
+    if (id == null || lastAssistantMsg.interruptedReported) return;
+    lastAssistantMsg.interruptedReported = true;
+    postJson("/api/audit/" + id + "/interrupt", {}).catch(function () { /* 信号丢了不打扰老人 */ });
+  }
+
   /* ── 语音播报 TTS ───────────────────────────────────────── */
   function loadVoices() {
     if (!synth) return;
@@ -902,7 +1000,9 @@
     msg.appendChild(body);
     messagesEl.appendChild(msg);
 
-    var wrapper = { el: msg, bubble: bubble, meta: meta };
+    // 历史回放的回复没有 audit_id，给按钮也无法回填 → 干脆不显示
+    var feedback = role === "assistant" && !silent ? createFeedback(meta) : null;
+    var wrapper = { el: msg, bubble: bubble, meta: meta, feedback: feedback };
     if (risk || (scenes && scenes.length)) updateMessageRisk(wrapper, risk, scenes);
 
     if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent);
@@ -1039,6 +1139,7 @@
     messages = [];
     messagesEl.textContent = "";
     welcomeEl.hidden = true;
+    lastAssistantMsg = null;
 
     (detail.messages || []).forEach(function (m) {
       addMessage(
@@ -1106,6 +1207,8 @@
     }
 
     if (isListening) toggleVoiceInput();
+
+    reportInterruptIfPlaying();
 
     addMessage("user", text, null, null);
     messages.push({ role: "user", content: text });
@@ -1181,6 +1284,10 @@
               console.warn("[小暖质检]", evt.data.violations);
             }
             if (evt.data.session_id) sessionId = evt.data.session_id;
+            // 云端断了、后端切了本地档：明确告诉老人，别让他以为小暖突然变笨了
+            notifyDegraded(evt.data.notice);
+            enableFeedback(msg, evt.data.audit_id);
+            lastAssistantMsg = msg;
             messages.push({ role: "assistant", content: assistantText });
             if (autoTtsEnabled) speak(msg.bubble.textContent);
             finished = true;

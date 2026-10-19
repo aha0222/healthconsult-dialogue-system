@@ -215,3 +215,59 @@ def test_users_has_conversation_profile_column(tmp_path):
     user = db.get_user(user_id)
     assert user["profile"] == '{"conditions": ["高血压"]}'
     assert user["conversation_profile"] == '{"family": ["女儿"], "preferences": ["散步"]}'
+
+
+def test_add_audit_returns_id_and_stores_signals(tmp_path):
+    """审计记录返回自增 id（前端凭 id 回填赞/踩），并落库交互信号。"""
+    db = make_db(tmp_path)
+    session_id = db.create_session("温婉邻居型")
+    first = db.add_audit(
+        session_id, "温婉邻居型", "我睡不着", "您先别急。[RISK:R1]",
+        risk="R1", repeated_question=False,
+    )
+    second = db.add_audit(
+        session_id, "温婉邻居型", "我睡不着", "您先别急。[RISK:R1]",
+        risk="R1", repeated_question=True,
+    )
+    assert isinstance(first, int) and second == first + 1
+
+    records = {row["id"]: row for row in db.list_audit()}
+    assert records[first]["repeated_question"] is False
+    assert records[second]["repeated_question"] is True
+    assert records[second]["interrupted"] is False
+    assert records[second]["feedback"] == 0
+
+
+def test_set_feedback_updates_only_feedback_fields(tmp_path):
+    db = make_db(tmp_path)
+    session_id = db.create_session("温婉邻居型")
+    audit_id = db.add_audit(
+        session_id, "温婉邻居型", "我睡不着", "您先别急。[RISK:R1]", risk="R1"
+    )
+
+    assert db.set_feedback(audit_id, -1, note="答得太笼统") is True
+    row = db.list_audit()[0]
+    assert row["feedback"] == -1
+    assert row["feedback_note"] == "答得太笼统"
+    assert row["feedback_at"]
+    # 反馈是旁路：不改写审计事实
+    assert row["reply"] == "您先别急。[RISK:R1]"
+    assert row["risk"] == "R1"
+
+    # 0 表示撤销，不是"没有记录"
+    assert db.set_feedback(audit_id, 0) is True
+    assert db.list_audit()[0]["feedback"] == 0
+
+    assert db.set_feedback(9999, 1) is False
+
+
+def test_mark_interrupt_sets_flag(tmp_path):
+    db = make_db(tmp_path)
+    session_id = db.create_session("温婉邻居型")
+    audit_id = db.add_audit(
+        session_id, "温婉邻居型", "你好", "您好呀。[RISK:R0]", risk="R0"
+    )
+
+    assert db.mark_interrupt(audit_id) is True
+    assert db.list_audit()[0]["interrupted"] is True
+    assert db.mark_interrupt(9999) is False

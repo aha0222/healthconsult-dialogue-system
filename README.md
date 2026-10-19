@@ -42,7 +42,7 @@
 | `frontend/` | 网页界面（人格展示 + 在线对话 + 语音接线 `scripts/voice.js`） | 可用 |
 | `backend/` | 对话系统后端：编排、三层安全、HTTP API、SQLite 持久化 | 可用 |
 | `skills/healthconsult-assistant-skill/` | 小暖回复规范包（纯规范，零 Python；语料 v0.4.0 共 **1725 条 / 24 场景**） | 可用 |
-| `voice_service/` | 独立语音服务：本地 ASR（Paraformer）+ TTS（Kokoro v1.1-zh，GPU 优先 / sherpa-onnx 回退）+ 流式/打断，默认 8100 端口 | 可用 |
+| `voice_service/` | 独立语音服务：本地 ASR（Paraformer）+ TTS（Kokoro 默认 / CosyVoice2 / Piper / 云端可选）+ 流式/打断，默认 8100 端口 | 可用 |
 | `backend/app/providers/` + `scripts/offline/` | 离线运行时：本地 LLM（llama.cpp 端点优先）+ 一键冷启动/打包/拔网线自检 | 可用 |
 | `tools/` | 离线数据工具：语料生成、清洗、质检、分布验收、人格评测、离线自检 | 可用 |
 | `backend/tests/` | 后端测试 + **56 例红队安全回归集**（CI 常驻） | 可用 |
@@ -58,6 +58,8 @@
 | `VOICE_ENABLED` | 0 | 启用语音服务（前端探活 voice_service，不可用自动回退打字版） |
 | `OFFLINE_MODE` | 0 | LLM 换成本地/私有端点（`get_llm()` 自动切换，绝不回退云端） |
 | `SPEAKER_DETECT_ENABLED` | 0 | 说话人识别（区分老人/家属，低置信一律按老人处理） |
+| `LLM_FALLBACK_ENABLED` | 0 | 在线档兜底：云端连不上时切本地档（启动探测 + 运行时切换，界面上明确提示；`LLM_FALLBACK_PROBE_SECONDS` 控制回探间隔，0=不自动回探） |
+| `AUDIT_RETENTION_DAYS` | 0 | 审计记录保留天数，0=永久保留。定了天数才清理（启动时清一次；也可用 `tools/prune_audit.py` 挂计划任务）。只删审计表，对话历史不动 |
 
 ---
 
@@ -112,7 +114,7 @@ python -m voice_service                                    # 默认 http://127.0
 
 浏览器打开 `voice_service/demo.html` 自测录音识别与合成；在 `.env` 设 `VOICE_ENABLED=1` 后，前端对话页的麦克风/播报即走本地语音服务（服务未启动时自动回退浏览器语音或打字）。
 
-上面装的是 CPU 版语音（sherpa-onnx / piper）。Kokoro（音色更自然，`tts.py` 里的首选后端）需要额外装
+上面装的是 CPU 版语音（sherpa-onnx / piper）。Kokoro（默认语音引擎，音色更自然）需要额外装
 `kokoro` / `misaki[zh]` 和 **CUDA 版 PyTorch**，装法如下——**它的下载源是个独立的坑**。
 
 #### GPU 加速语音合成（可选）

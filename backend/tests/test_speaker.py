@@ -103,6 +103,6 @@ def test_history_continuation_and_ignored_items():
 
 # ── 准确率评测已迁出 ──────────────────────────────────────────────────
 # 原先内嵌的 67 例样例列表与 test_accuracy_meets_acceptance_bar 已迁至
-# backend/tests/eval/speaker_cases.jsonl（并新增 96 例对抗样例，共 163 例
-# 角色类 + 12 例安全类），由 backend/tests/test_speaker_eval.py 驱动，
+# backend/tests/eval/speaker_cases.jsonl（后又并入成员 B 的独立样例，
+# 现为 219 例角色类 + 18 例安全类），由 backend/tests/test_speaker_eval.py 驱动，
 # 避免样例与判定散落两处。本文件保留契约与行为单测。

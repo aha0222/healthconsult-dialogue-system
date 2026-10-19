@@ -1,0 +1,88 @@
+{
+  "source": "标签率实测 scripts/offline/tag_rate.jsonl（B 本机数据，未随包提交）",
+  "total_evaluated": 177,
+  "failures": 19,
+  "channels": {
+    "keyword": 0,
+    "skill_md": 19,
+    "negative": 19
+  },
+  "by_direction": {
+    "偏低": 19
+  },
+  "by_want_risk": {
+    "R3": 9,
+    "R2b": 10
+  },
+  "max_rule": {
+    "scope": "全量 177 条",
+    "before_miss": 19,
+    "after_miss": 0,
+    "before_over": 13,
+    "after_over": 15,
+    "over_cases": [
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      },
+      {
+        "want": "R2b",
+        "got": "R3"
+      }
+    ]
+  },
+  "out_dir": "review/failure_absorption",
+  "note": "三路只产出待审清单；关键词表与 SKILL.md 均未改动。原始实测数据未入库，比例来自 B 的复现记录。"
+}

@@ -99,7 +99,7 @@ def load_jsonl(path: str):
                 category = item.get("category", "未分类")
             except (json.JSONDecodeError, KeyError) as exc:
                 raise SystemExit(f"{path}:{lineno} 解析失败：{exc}") from exc
-            if item.get("expected"):
+            if item.get("expected") and item["expected"] != "invariant":
                 role_cases.append((category, item["expected"], text,
                                    item.get("history")))
             else:
@@ -108,7 +108,15 @@ def load_jsonl(path: str):
 
 
 def main() -> None:
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    argv = sys.argv[1:]
+    json_out = ""
+    if "--json" in argv:
+        index = argv.index("--json")
+        if index + 1 >= len(argv):
+            raise SystemExit("--json 后面要跟输出路径")
+        json_out = argv[index + 1]
+        del argv[index:index + 2]
+    args = [a for a in argv if not a.startswith("-")]
     if args:
         cases, safety_cases = load_jsonl(args[0])
         source = args[0]
@@ -166,6 +174,31 @@ def main() -> None:
         print("      与兜底话术必须一致——即角色不改变红线。")
         for _, text, _ in safety_cases:
             print(f"      {text}")
+
+    if json_out:
+        payload = {
+            "source": source,
+            "total": total,
+            "wrong": wrong,
+            "accuracy": (total - wrong) / total if total else 0.0,
+            "over_family": len(over_family),
+            "miss_family": len(miss_family),
+            "invariant": len(safety_cases),
+            "by_class": {
+                cls: {"n": n, "wrong": bad,
+                      "accuracy": (n - bad) / n if n else 0.0}
+                for cls, (n, bad, _) in by_class.items()
+            },
+            "over_family_cases": [
+                {"category": cls, "text": text} for cls, text in over_family
+            ],
+            "miss_family_cases": [
+                {"category": cls, "text": text} for cls, text in miss_family
+            ],
+        }
+        Path(json_out).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\nJSON 已写 {json_out}")
 
 
 if __name__ == "__main__":

@@ -331,6 +331,8 @@ $env:OFFLINE_LLM_BACKEND = if ($cfg["OFFLINE_LLM_BACKEND"]) { $cfg["OFFLINE_LLM_
 $env:OFFLINE_LLM_ENDPOINT = $Endpoint
 if (-not $env:DEEPSEEK_API_KEY) { $env:DEEPSEEK_API_KEY = "sk-local" }
 if (-not $env:EMBEDDING_BACKEND) { $env:EMBEDDING_BACKEND = "hash" }
+# 数据留存：离线档同样会落真实对话，显式给一个留存期（0＝永久）
+if (-not $env:AUDIT_RETENTION_DAYS) { $env:AUDIT_RETENTION_DAYS = "180" }
 
 # ── 5. 可选：语音服务 ─────────────────────────────────────────────────
 $voiceProcess = $null

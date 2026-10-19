@@ -66,6 +66,7 @@
 
 **推荐阅读顺序**
 - 想懂设计 → `SKILL.md`（最重要）
+- 想懂语料 → `examples/corpus/README.md`（数据卡片：字段、值域、生成方式、查看命令）
 - 想看对比数据 → `docs/personality_test_report.md`
 - 想看反面教材 → `examples/bad_health_assistant_examples.md`
 

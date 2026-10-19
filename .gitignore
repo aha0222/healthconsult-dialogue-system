@@ -27,6 +27,7 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+.zcode/
 Thumbs.db
 
 # Logs
@@ -43,17 +44,26 @@ backend/data/
 voice_service/models/*
 !voice_service/models/.gitkeep
 !voice_service/models/README.md
+# numba 缓存（CosyVoice2 首次加载时生成）
+voice_service/.numba_cache/
+
+# 审计复盘产物含真实对话，只留本地
+review/audit_review/
 
 # Generated data artifacts (不提交；需要时在本地重跑生成脚本)
 # 注意：运行时检索用的 v0.3.0_corpus500.jsonl 与 CI 引用的
 # v0.2.3_health_safety_repair.jsonl 属于发布物，保留入库。
 skills/healthconsult-assistant-skill/examples/generated_candidates_*.jsonl
 skills/healthconsult-assistant-skill/examples/*_bad_cases.csv
+# 同上，但 corpus/ 子目录（非递归 glob 覆盖不到，之前漏了导致质检报告意外入库）
+skills/healthconsult-assistant-skill/examples/corpus/*_bad_cases.csv
 tests/results/batch_results*.json
 tests/results/batch_report*.md
 tests/results/personality_gen_*.jsonl
 tests/results/personality_scores_*.jsonl
 tests/results/personality_ranking_*.jsonl
+# 本机实测落盘（评测原始输出，按约定不入库；需要时重跑 tools/offline_tag_rate.py）
+scripts/offline/tag_rate.jsonl
 
 # 人格评测交付包原始副本（内容已归位到 tools/ docs/ tests/results/ examples/）
 人格评测/

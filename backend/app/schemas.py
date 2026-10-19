@@ -66,6 +66,15 @@ class ChatResponse(BaseModel):
     model: str
     speaker_role: str = "elder"
     session_id: Optional[str] = None
+    audit_id: Optional[int] = Field(
+        default=None, description="本次回复的审计记录 id，供前端回填赞/踩"
+    )
+    degraded: bool = Field(
+        default=False, description="云端不可用、已切到本地档"
+    )
+    notice: Optional[str] = Field(
+        default=None, description="需要让老人知道的提示（如已切本地档）"
+    )
 
 
 class PersonalityInfo(BaseModel):
@@ -80,6 +89,9 @@ class HealthResponse(BaseModel):
     auth_enabled: bool = False
     voice_enabled: bool = False
     speaker_detect_enabled: bool = False
+    llm_backend: str = "cloud"
+    llm_degraded: bool = False
+    llm_degraded_reason: str = ""
     config_warnings: List[str] = Field(default_factory=list)
 
 
@@ -129,7 +141,35 @@ class AuditRecord(BaseModel):
     fallback_used: bool = False
     model: Optional[str] = None
     latency_ms: Optional[int] = None
+    interrupted: bool = False
+    repeated_question: bool = False
+    feedback: int = 0
+    feedback_note: Optional[str] = None
+    feedback_at: Optional[str] = None
+    llm_backend: Optional[str] = Field(
+        default=None, description="产出这条回复的档位：cloud / local"
+    )
     created_at: str
+
+
+class FeedbackRequest(BaseModel):
+    """人工评价：1 赞 / -1 踩 / 0 撤销。note 可选，用于记下"哪里不好"。"""
+
+    rating: Literal[-1, 0, 1] = Field(..., description="1 赞 / -1 踩 / 0 撤销")
+    note: Optional[str] = Field(
+        default=None, max_length=200, description="可选备注（例如“答得太笼统”）"
+    )
+
+
+class FeedbackResponse(BaseModel):
+    updated: bool
+    audit_id: int
+    feedback: int
+
+
+class InterruptResponse(BaseModel):
+    updated: bool
+    audit_id: int
 
 
 class TaxonomyResponse(BaseModel):

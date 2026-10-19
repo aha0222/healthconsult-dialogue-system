@@ -9,13 +9,18 @@
     v5: users（用户级档案/画像）与 sessions.user_id（跨会话绑定）
     v6: users 增加 conversation_summary（对话提炼摘要，与采集摘要 summary 分离）
     v7: users 增加 conversation_profile（对话提炼画像，与采集画像 profile 分离）
+    v8: audit_log 增加人工反馈与交互信号字段：
+        feedback（1 赞 / -1 踩 / 0 未评）、feedback_note、feedback_at、
+        interrupted（老人打断播报）、repeated_question（重复追问同一件事）
+    v9: audit_log 增加 llm_backend（cloud / local），用于事后核查"这一条是谁答的"——
+        降级只在界面上提示一次（notice），落库才查得出断网期间有多少条走了本地档
 """
 
 import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SESSIONS_SCHEMA = """
@@ -92,6 +97,21 @@ USER_CONVERSATION_PROFILE_SCHEMA = """
 ALTER TABLE users ADD COLUMN conversation_profile TEXT;
 """
 
+# 人工反馈信号：赞/踩是唯一"好/坏"的人工信号，另外两个是客观交互信号
+# （打断播报、重复追问同一件事）。默认 0＝未评/未发生，保证老库平滑迁移。
+FEEDBACK_SCHEMA = """
+ALTER TABLE audit_log ADD COLUMN feedback INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE audit_log ADD COLUMN feedback_note TEXT;
+ALTER TABLE audit_log ADD COLUMN feedback_at TEXT;
+ALTER TABLE audit_log ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE audit_log ADD COLUMN repeated_question INTEGER NOT NULL DEFAULT 0;
+"""
+
+# 这一条回复由哪个档位产出：cloud = 云端（默认），local = 断网降级后的本地档
+BACKEND_SCHEMA = """
+ALTER TABLE audit_log ADD COLUMN llm_backend TEXT;
+"""
+
 MIGRATIONS = [
     (1, SESSIONS_SCHEMA),
     (2, AUDIT_SCHEMA),
@@ -100,6 +120,8 @@ MIGRATIONS = [
     (5, USERS_SCHEMA),
     (6, USER_CONVERSATION_SCHEMA),
     (7, USER_CONVERSATION_PROFILE_SCHEMA),
+    (8, FEEDBACK_SCHEMA),
+    (9, BACKEND_SCHEMA),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]
@@ -365,13 +387,18 @@ class Database:
         fallback_used=False,
         model=None,
         latency_ms=None,
+        interrupted=False,
+        repeated_question=False,
+        llm_backend=None,
     ):
+        """写入一条审计记录，返回其自增 id（前端凭 id 回填赞/踩）。"""
         now = _now()
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO audit_log (session_id, personality, user_message, reply, "
-                "risk, scenes, violations, fallback_used, model, latency_ms, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "risk, scenes, violations, fallback_used, model, latency_ms, "
+                "interrupted, repeated_question, llm_backend, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     personality,
@@ -383,9 +410,51 @@ class Database:
                     1 if fallback_used else 0,
                     model,
                     latency_ms,
+                    1 if interrupted else 0,
+                    1 if repeated_question else 0,
+                    llm_backend,
                     now,
                 ),
             )
+            return cursor.lastrowid
+
+    def set_feedback(self, audit_id: int, rating: int, note: str | None = None) -> bool:
+        """记录一次人工评价（1 赞 / -1 踩 / 0 撤销）；记录不存在返回 False。
+
+        只写反馈字段，不动对话正文与安全字段：反馈是旁路信号，不能改写审计事实。
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE audit_log SET feedback = ?, feedback_note = ?, feedback_at = ? "
+                "WHERE id = ?",
+                (int(rating), note, _now(), audit_id),
+            )
+            return cursor.rowcount > 0
+
+    def mark_interrupt(self, audit_id: int) -> bool:
+        """标记该条回复被老人打断（播报中途被打断 / 未听完就问下一句）。"""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE audit_log SET interrupted = 1 WHERE id = ?", (audit_id,)
+            )
+            return cursor.rowcount > 0
+
+    def prune_audit(self, days: int) -> int:
+        """删除 N 天之前的审计记录，返回删除条数。
+
+        days<=0 表示**不清理**——默认值，所以不设 AUDIT_RETENTION_DAYS 时
+        行为与从前完全一样（审计永久保留）。保留多久是数据合规决定，
+        代码只提供旋钮，不替使用者定阈值。
+        只删审计表：会话与消息（用户要看的对话历史）不受影响。
+        """
+        if not days or days <= 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM audit_log WHERE created_at < ?", (cutoff,)
+            )
+            return cursor.rowcount
 
     def list_audit(
         self,
@@ -438,5 +507,8 @@ class Database:
             except (TypeError, ValueError):
                 record["scenes"] = []
             record["fallback_used"] = bool(record.get("fallback_used"))
+            record["interrupted"] = bool(record.get("interrupted"))
+            record["repeated_question"] = bool(record.get("repeated_question"))
+            record["feedback"] = int(record.get("feedback") or 0)
             records.append(record)
         return records

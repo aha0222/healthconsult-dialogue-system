@@ -76,6 +76,10 @@ if ($SetupOnly) {
 Write-Host "==> 启动后端：http://$ListenHost`:$Port"
 Write-Host "    前端：浏览器打开 frontend/chat.html，在设置里确认后端地址"
 
+# ── 数据留存：演示机同样会落真实对话，这里显式给一个留存期 ──────────
+# 默认 180 天（0＝永久）。.env 里已经设了就不覆盖，保留使用者的显式选择。
+if (-not $env:AUDIT_RETENTION_DAYS) { $env:AUDIT_RETENTION_DAYS = "180" }
+
 # ── 可选：一并起语音服务（云端模式下的演示用）────────────────────
 # 主路径是在线档，但朗读仍走本地 voice_service（省调用、低延迟、断网也能播报）。
 $voiceProc = $null
