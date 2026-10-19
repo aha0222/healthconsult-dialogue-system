@@ -8,7 +8,6 @@ import wave
 from pathlib import Path
 
 import numpy as np
-import torch
 
 MODELS_DIR = Path(__file__).resolve().parent / "models" / "kokoro"
 MODEL = MODELS_DIR / "kokoro-v1_1-zh.pth"
@@ -73,6 +72,7 @@ def _load():
         from misaki import en
         from pypinyin import load_phrases_dict
         import jieba
+        import torch
 
         from . import pronunciation
 
@@ -119,6 +119,8 @@ def synthesize(text: str, voice: str = "zf_001", speed: float = 1.0) -> bytes:
     audios = [r.output.audio for r in results if r.output is not None]
     if not audios:
         return _empty_wav()
+    import torch
+
     audio = torch.cat(audios).cpu().numpy()
     pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
     buf = io.BytesIO()
