@@ -51,7 +51,12 @@ CORPUS_PATH = (REPO_ROOT / "backend" / "app" / "dialogue" / "corpus"
 # ── 环境准备（必须在导入 backend 之前）────────────────────────────────
 
 def load_env_file(path: Path) -> list:
-    """把离线档配置读进 os.environ。返回实际生效的键值对。"""
+    """把离线档配置读进 os.environ。返回实际生效的键值对。
+
+    已存在的环境变量优先：start.ps1 会先挑一个空闲端口（GPU 档是 8090）写进
+    OFFLINE_LLM_ENDPOINT，而 .env.offline 里固定写的是 8080。如果这里无条件
+    覆盖，自检就会去探一个没人监听的端口，把本来正常的离线档判成失败。
+    """
     if not path or not path.is_file():
         return []
     applied = []
@@ -63,6 +68,8 @@ def load_env_file(path: Path) -> list:
         key, value = key.strip(), value.strip()
         if not key:
             continue
+        if key in os.environ and os.environ[key] != value:
+            continue          # 调用方显式设过，以调用方为准
         os.environ[key] = value
         applied.append((key, value))
     return applied

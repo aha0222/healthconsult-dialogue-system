@@ -350,7 +350,9 @@ if ($env:VOICE_ENABLED -eq "1") {
 # ── 6. 可选：先自检 ───────────────────────────────────────────────────
 if ($Check) {
     Write-Step "离线自检"
-    & $venvPython (Join-Path $RepoRoot "tools\offline_check.py")
+    # 显式带上本次挑到的端点：.env.offline 里固定写的是 8080，
+    # GPU 档实际跑在 8090，不带 --endpoint 会去探一个空端口、误判失败。
+    & $venvPython (Join-Path $RepoRoot "tools\offline_check.py") --endpoint $Endpoint
     if ($LASTEXITCODE -ne 0) {
         Write-Warn2 "自检未全过（退出码 $LASTEXITCODE）。仍继续启动，便于你排查。"
     }
