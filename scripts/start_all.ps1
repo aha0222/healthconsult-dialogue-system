@@ -58,19 +58,27 @@ if (-not $SkipVoice) {
 }
 
 # ── 3. 生成 .env 并检查密钥 ─────────────────────────────────
-if (-not (Test-Path ".env")) {
-    Copy-Item ".env.example" ".env"
+$envPath = Join-Path $Root ".env"
+if (-not (Test-Path -LiteralPath $envPath)) {
+    Copy-Item -LiteralPath (Join-Path $Root ".env.example") -Destination $envPath
     Write-Host "==> .env generated (copied from .env.example)"
 }
 
 function Get-ApiKey {
-    $key = ""
-    if (Test-Path ".env") {
-        Get-Content ".env" -Encoding UTF8 | ForEach-Object {
-            if ($_ -match '^\s*DEEPSEEK_API_KEY\s*=\s*(.*)$') { $key = $Matches[1].Trim() }
+    $candidates = @()
+    if ($env:DEEPSEEK_API_KEY) { $candidates += $env:DEEPSEEK_API_KEY }
+    if (Test-Path -LiteralPath $envPath) {
+        Get-Content -LiteralPath $envPath -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^\s*(?:export\s+)?DEEPSEEK_API_KEY\s*=\s*(.*)$') {
+                $candidates += $Matches[1]
+            }
         }
     }
-    return $key
+    foreach ($raw in $candidates) {
+        $v = ([string]$raw).Trim().Trim([char]34).Trim([char]39).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($v) -and $v -ne "sk-xxx") { return $v }
+    }
+    return ""
 }
 
 if (-not $NoWait) {
@@ -80,7 +88,7 @@ if (-not $NoWait) {
         Write-Host "[WARN] DEEPSEEK_API_KEY is not set yet." -ForegroundColor Yellow
         Write-Host "       Notepad will open .env. Change sk-xxx to your real key." -ForegroundColor Yellow
         Write-Host "       Then press Ctrl+S to SAVE, and CLOSE Notepad." -ForegroundColor Yellow
-        Start-Process notepad ".env" -Wait
+        Start-Process notepad $envPath -Wait
         $key = Get-ApiKey
         if ([string]::IsNullOrWhiteSpace($key) -or $key -eq "sk-xxx") {
             $ans = Read-Host "Key still not detected. Press Enter to retry, or type 'skip' and Enter to continue without a key"

@@ -71,15 +71,26 @@ if [ "$INSTALL_TOOLS" -eq 1 ] && [ -f tools/requirements.txt ]; then
 fi
 
 # ── .env ─────────────────────────────────────────────────────
-if [ ! -f .env ]; then
-  cp .env.example .env
+ENV_FILE="$ROOT/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  cp "$ROOT/.env.example" "$ENV_FILE"
   echo "==> 已生成 .env（请填写 DEEPSEEK_API_KEY）"
 fi
 
-KEY="$(grep -E '^DEEPSEEK_API_KEY=' .env | head -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+# 先看环境变量，再看仓库根目录的 .env；兼容 export、引号和重复行。
+KEY="${DEEPSEEK_API_KEY:-}"
+KEY="$(printf '%s' "$KEY" | tr -d '[:space:]' | sed -E "s/[\"']//g")"
 if [ -z "$KEY" ] || [ "$KEY" = "sk-xxx" ]; then
-  echo "⚠ .env 中的 DEEPSEEK_API_KEY 还未填写，后端无法调用大模型。"
-  echo "  请编辑 .env 后重新运行本脚本。"
+  KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?DEEPSEEK_API_KEY[[:space:]]*=' "$ENV_FILE" \
+    | sed -E 's/^[^=]*=//' \
+    | sed -E 's/[[:space:]]//g' \
+    | sed -E "s/[\"']//g" \
+    | grep -v '^sk-xxx$' \
+    | tail -n1 || true)"
+fi
+if [ -z "$KEY" ]; then
+  echo "⚠ 未在 .env 或环境变量 DEEPSEEK_API_KEY 中找到有效 Key，后端无法调用大模型。"
+  echo "  请编辑 $ENV_FILE，或设置环境变量后重新运行本脚本。"
 fi
 
 if [ "$SETUP_ONLY" -eq 1 ]; then

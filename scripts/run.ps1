@@ -91,18 +91,33 @@ if ($needInstall) {
 }
 
 # ── .env ─────────────────────────────────────────────────────
-if (-not (Test-Path ".env")) {
-    Copy-Item ".env.example" ".env"
+$envPath = Join-Path $Root ".env"
+if (-not (Test-Path -LiteralPath $envPath)) {
+    Copy-Item -LiteralPath (Join-Path $Root ".env.example") -Destination $envPath
     Write-Host "==> 已生成 .env（请填写 DEEPSEEK_API_KEY）"
 }
 
-$key = ""
-Get-Content ".env" | ForEach-Object {
-    if ($_ -match '^\s*DEEPSEEK_API_KEY\s*=\s*(.*)$') { $key = $Matches[1].Trim() }
+function Get-DeepSeekKey {
+    $candidates = @()
+    if ($env:DEEPSEEK_API_KEY) { $candidates += $env:DEEPSEEK_API_KEY }
+    if (Test-Path -LiteralPath $envPath) {
+        Get-Content -LiteralPath $envPath -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^\s*(?:export\s+)?DEEPSEEK_API_KEY\s*=\s*(.*)$') {
+                $candidates += $Matches[1]
+            }
+        }
+    }
+    foreach ($raw in $candidates) {
+        $v = ([string]$raw).Trim().Trim([char]34).Trim([char]39).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($v) -and $v -ne "sk-xxx") { return $v }
+    }
+    return ""
 }
-if ([string]::IsNullOrWhiteSpace($key) -or $key -eq "sk-xxx") {
-    Write-Host "⚠ .env 中的 DEEPSEEK_API_KEY 还未填写，后端无法调用大模型。" -ForegroundColor Yellow
-    Write-Host "  请编辑 .env 后重新运行本脚本。"
+
+$key = Get-DeepSeekKey
+if ([string]::IsNullOrWhiteSpace($key)) {
+    Write-Host "⚠ 未在 .env 或环境变量 DEEPSEEK_API_KEY 中找到有效 Key，后端无法调用大模型。" -ForegroundColor Yellow
+    Write-Host "  请编辑 $envPath，或设置环境变量后重新运行本脚本。"
 }
 
 if ($SetupOnly) {
