@@ -137,6 +137,7 @@
     <symbol id="i-memory" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
     <symbol id="i-thumb-up" viewBox="0 0 24 24"><path d="M7 20V10l4.5-6.5a1.6 1.6 0 0 1 2.9 1.2L13.5 9H18a2 2 0 0 1 2 2.4l-1.2 6A2 2 0 0 1 16.8 19H7z"/><path d="M7 20H4.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1H7"/></symbol>
     <symbol id="i-thumb-down" viewBox="0 0 24 24"><path d="M17 4v10l-4.5 6.5a1.6 1.6 0 0 1-2.9-1.2L10.5 15H6a2 2 0 0 1-2-2.4l1.2-6A2 2 0 0 1 7.2 5H17z"/><path d="M17 4h2.5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H17"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
   </defs>
 </svg>
 
@@ -226,6 +227,9 @@
       <label class="sr-only" for="userInput">输入您想说的话</label>
       <button class="mic-btn" type="button" id="micBtn" aria-label="语音输入" aria-pressed="false">
         <svg class="icon" aria-hidden="true"><use href="#i-mic"></use></svg>
+      </button>
+      <button class="mic-btn stop-btn" type="button" id="stopSpeakBtn" aria-label="停止播报" title="停止播报" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>
       </button>
       <textarea id="userInput" rows="1" placeholder="输入文字，或点话筒说话…"
                 autocomplete="off" autocapitalize="off"></textarea>

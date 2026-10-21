@@ -68,6 +68,7 @@
   var inputEl = $("userInput");
   var sendBtn = $("sendBtn");
   var micBtn = $("micBtn");
+  var stopSpeakBtn = $("stopSpeakBtn");
   var statusText = $("statusText");
   var liveStatus = $("liveStatus");
   var composerForm = $("composerForm");
@@ -427,6 +428,13 @@
     inputEl.addEventListener("input", function () { autoResize(inputEl); });
     inputEl.addEventListener("keydown", handleKeyDown);
     micBtn.addEventListener("click", toggleVoiceInput);
+    if (stopSpeakBtn) {
+      stopSpeakBtn.addEventListener("click", function () {
+        reportInterruptIfPlaying();
+        updateStopSpeakBtn();
+      });
+    }
+    setInterval(updateStopSpeakBtn, 300);
   }
 
   function autoResize(el) {
@@ -789,6 +797,11 @@
     return !!(synth && synth.speaking);
   }
 
+  function updateStopSpeakBtn() {
+    if (!stopSpeakBtn) return;
+    stopSpeakBtn.hidden = !isSpeakingNow();
+  }
+
   /* 老人在小暖还没说完时就发了下一句 → 上一条被打断。先停播报再记账。 */  function reportInterruptIfPlaying() {
     if (!isSpeakingNow()) return;
     if (window.XiaonuanVoice && XiaonuanVoice.stopSpeaking) {
@@ -898,6 +911,7 @@
       try { recognition.stop(); } catch (e) { /* ignore */ }
       stopListening();
     } else {
+      reportInterruptIfPlaying();
       inputEl.value = "";
       inputEl.dataset.finalText = "";
       autoResize(inputEl);
@@ -917,6 +931,7 @@
       stopListening();
       return;
     }
+    reportInterruptIfPlaying();
     inputEl.value = "";
     inputEl.dataset.finalText = "";
     autoResize(inputEl);

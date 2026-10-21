@@ -526,6 +526,19 @@ body[data-risk="R2b"] {
   50% { transform: scale(1.06); }
 }
 
+.stop-btn {
+  color: var(--c-danger-strong);
+}
+
+.stop-btn:hover {
+  border-color: var(--c-danger);
+  color: var(--c-danger-strong);
+}
+
+.stop-btn[hidden] {
+  display: none;
+}
+
 .send-btn {
   display: inline-flex;
   align-items: center;

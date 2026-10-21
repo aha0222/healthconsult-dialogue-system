@@ -339,6 +339,11 @@
   var REST_MIN_CHARS = 20;
   var CHUNK_GAP_MS = 80;        // 块间留一点停顿（服务端已裁掉首尾静音）
 
+  /* 云端流式单次 continue-task 有文本上限：实测 160–170 字左右会提前
+     task-finished，后半段没合成。留足余量，超过 120 字就直接走分块
+     （云端首块 45 字、后续 90 字），避免播到一半停住。 */
+  var STREAM_MAX_CHARS = 120;
+
   function chunkBudget() {
     return engineMode() === "cloud"
       ? { first: CLOUD_FIRST_CHARS, rest: CLOUD_REST_CHARS, ratio: 3.5 }
@@ -464,8 +469,14 @@
 
     /* 先试流式：边合成边播，首块约 0.7 秒（非流式 66 字要 3.2 秒、200 字要 10 秒以上），
        而且整段是一个会话，语调统一。流式不可用（501/网络/浏览器不支持 Web Audio）
-       再退回下面的分块方案。 */
+       再退回下面的分块方案。
+
+       但云端流式对单次 continue-task 的文本长度有限制，长回复会在 160–170 字
+       左右被提前结束；本地引擎本来就不支持流式。所以这两种情况直接走分块。 */
     var myToken = speakToken;
+    if (engineMode() !== "cloud" || clean.length > STREAM_MAX_CHARS) {
+      return speakChunked(clean, risk);
+    }
     return streamSpeak(clean, risk, myToken).then(function (ok) {
       if (ok) return true;
       if (myToken !== speakToken) return true;   // 已被新一轮接管
