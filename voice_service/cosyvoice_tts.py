@@ -127,25 +127,33 @@ def _empty_wav() -> bytes:
     return buf.getvalue()
 
 
-def synthesize(text: str, voice: str | None = None, speed: float = 1.0) -> bytes:
-    """文本 -> wav 字节。voice 参数保留兼容，CosyVoice2 使用零样本参考音色。"""
+def _prompt_kwargs(instruct: str | None) -> dict:
+    # 指令模式不能再传提示语音 token（frontend_instruct2 会把它删掉），
+    # 但 speaker embedding 仍来自参考音频，音色保持一致。
+    return {"zero_shot_spk_id": _PROMPT_SPK_ID} if _PROMPT_CACHED else {}
+
+
+def _infer(model, text, speed, stream, instruct):
+    """按是否给了语气指令选择推理入口，两路输出的 tts_speech 结构一致。"""
+    kwargs = _prompt_kwargs(instruct)
+    if instruct:
+        return model.inference_instruct2(
+            text, instruct, str(PROMPT_WAV), stream=stream, speed=speed, **kwargs
+        )
+    return model.inference_zero_shot(
+        text, PROMPT_TEXT, str(PROMPT_WAV), stream=stream, speed=speed, **kwargs
+    )
+
+
+def synthesize(text: str, voice: str | None = None, speed: float = 1.0,
+               instruct: str | None = None) -> bytes:
+    """文本 -> wav 字节。voice 参数保留兼容，CosyVoice2 使用零样本参考音色。
+
+    instruct 是自然语言语气指令（如"用沉重的语气说"），None 时保持参考音色。
+    """
     del voice  # 当前固定使用附带参考音色；后续可扩展为自定义参考音频。
     model = _load()
-    _kwargs = (
-        {"zero_shot_spk_id": _PROMPT_SPK_ID}
-        if _PROMPT_CACHED
-        else {}
-    )
-    chunks = list(
-        model.inference_zero_shot(
-            text,
-            PROMPT_TEXT,
-            str(PROMPT_WAV),
-            stream=False,
-            speed=speed,
-            **_kwargs,
-        )
-    )
+    chunks = list(_infer(model, text, speed, False, instruct))
     audios = [chunk["tts_speech"] for chunk in chunks if chunk.get("tts_speech") is not None]
     if not audios:
         return _empty_wav()
@@ -165,26 +173,14 @@ def get_sample_rate() -> int:
     return _load().sample_rate
 
 
-def synthesize_stream(text: str, speed: float = 1.0):
+def synthesize_stream(text: str, speed: float = 1.0, instruct: str | None = None):
     """文本 -> 逐段 PCM16 字节流（int16, mono, little-endian）。
 
     与 synthesize() 使用相同的零样本参考音色，但走 CosyVoice2 流式推理，
     前端可以边收边播，显著降低「点击到出声」的首音延迟。
     """
     model = _load()
-    _kwargs = (
-        {"zero_shot_spk_id": _PROMPT_SPK_ID}
-        if _PROMPT_CACHED
-        else {}
-    )
-    for chunk in model.inference_zero_shot(
-        text,
-        PROMPT_TEXT,
-        str(PROMPT_WAV),
-        stream=True,
-        speed=speed,
-        **_kwargs,
-    ):
+    for chunk in _infer(model, text, speed, True, instruct):
         speech = chunk.get("tts_speech")
         if speech is None:
             continue

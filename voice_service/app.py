@@ -34,12 +34,14 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 import asyncio
 import json
 import logging
 import threading
+from contextlib import contextmanager
 import time
 
 from fastapi import (
@@ -58,6 +60,7 @@ from pydantic import BaseModel
 from . import CONTRACT_VERSION, DEFAULT_PORT, SERVICE_NAME, __version__
 from . import asr as _asr
 from . import cloud_tts as _cloud_tts
+from .tone import instruct_for, tts_params
 from . import vad as _vad
 
 logger = logging.getLogger(__name__)
@@ -89,6 +92,23 @@ else:
 # 推理锁：TTS 引擎（GPU/CPU 模型）不是线程安全的，多路并发合成会抢用同一模型，
 # 导致显存溢出或音频错乱。这里把「真正的推理」串行化，让 /tts 可以被并行调用、内部排队。
 _TTS_LOCK = threading.Lock()
+# 排队上限：真卡住时宁可让前端回退浏览器语音，也不要让请求无限等下去
+# （演示时"点了没反应"比"换了个音色"糟得多）。
+_TTS_LOCK_TIMEOUT = 30.0
+
+
+@contextmanager
+def _tts_guard():
+    if not _TTS_LOCK.acquire(timeout=_TTS_LOCK_TIMEOUT):
+        logger.warning("TTS 推理锁等待超时（%.0f 秒），返回 503", _TTS_LOCK_TIMEOUT)
+        raise HTTPException(
+            status_code=503,
+            detail="语音合成繁忙，请稍后重试（前端会自动回退浏览器语音）",
+        )
+    try:
+        yield
+    finally:
+        _TTS_LOCK.release()
 
 app = FastAPI(title="小暖语音服务", version=__version__)
 
@@ -154,6 +174,12 @@ def _preload_models() -> None:
         except Exception as exc:  # noqa: BLE001
             _TTS_LOADED = False
             logger.warning("预加载 TTS 模型失败，/health 将报告 tts=false：%s", exc)
+    # 云端语音：后台预热一次（建 TLS 连接 + 远端模型热起来）。
+    # 实测第一次 /tts 会多等半秒到一秒，表现就是"开场有段空白"。
+    if _cloud_tts.is_available():
+        threading.Thread(
+            target=_cloud_tts.warmup, daemon=True, name="cloud-tts-warmup"
+        ).start()
 
 
 _preload_models()
@@ -167,6 +193,145 @@ class TTSRequest(BaseModel):
     format: str = "wav"
     speed: float = 0.9
     engine: Optional[str] = None
+    # 这条回复的风险等级（R0/R1/R2a/R2b/R3）。仅用于选播报语气，缺省按普通情况。
+    risk: Optional[str] = None
+
+
+# ── 引擎无关的文本清洗 ────────────────────────────────────────────────
+# 只做「模型不该念出来的东西」：风险标记、markdown 残留、代码围栏、链接。
+# 刻意不动数字与读音——那是各引擎自己的文本规范化（云端与 CosyVoice2 都自带），
+# 早先为 Kokoro 写的 normalize_for_tts / 数字转中文 / 长句减速只属于本地弱模型路径。
+_MARKER_RE = re.compile(r"\[(?:RISK|SCENE)\s*:[^\]]*\]")
+# 整块代码围栏直接丢掉：里面的内容念出来对老人没有意义
+_FENCE_BLOCK_RE = re.compile(r"```.*?```", re.S)
+_FENCE_RE = re.compile(r"```[a-zA-Z]*|```")
+_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_INLINE_CODE_RE = re.compile(r"`([^`]*)`")
+_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]*", re.M)
+_LIST_RE = re.compile(r"^[ \t]*(?:[-*•]|\d+[.)、])[ \t]+", re.M)
+_JUNK_RE = re.compile(r"[|~>\\]")
+_EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]")
+# 数字间的斜杠：血压惯写 150/95。直接送引擎会被读成"除以"（云端实测）或
+# "九十五分之一百五十"（本地 CosyVoice2 实测，方向还反了），所以换成"比"。
+# 只处理两侧 1~3 位数字、且不连着别的数字或斜杠的情况——日期 2024/10/09 不会被改。
+_DIGIT_SLASH_RE = re.compile(r"(?<![\d/])(\d{1,3})\s*/\s*(\d{1,3})(?![\d/])")
+
+
+def clean_for_tts(text: str) -> str:
+    """把模型回复整理成「适合念出来」的纯文本（与具体引擎无关）。"""
+    out = text or ""
+    out = _MARKER_RE.sub("", out)
+    out = _FENCE_BLOCK_RE.sub("", out)
+    out = _FENCE_RE.sub("", out)
+    out = _LINK_RE.sub(r"\1", out)
+    out = _BOLD_RE.sub(r"\1", out)
+    out = _ITALIC_RE.sub(r"\1", out)
+    out = _INLINE_CODE_RE.sub(r"\1", out)
+    out = _HEADING_RE.sub("", out)
+    out = _LIST_RE.sub("", out)
+    out = _EMOJI_RE.sub("", out)
+    out = _DIGIT_SLASH_RE.sub(r"\1比\2", out)
+    out = _JUNK_RE.sub("", out)
+    out = re.sub(r"[ \t]+", " ", out)
+    # 换行在语音里没有意义：空行当句号、单行当逗号，保持停顿感
+    out = re.sub(r"\n{2,}", "。", out)
+    out = re.sub(r"\n", "，", out)
+    # 去掉标记后常留下「。，」这种悬垂标点，收敛一下
+    out = re.sub(r"([。！？；])[，、；：]+", r"\1", out)
+    out = re.sub(r"^[，、；：]+", "", out)
+    out = re.sub(r"\s*([，。！？；：、])\s*", r"\1", out)
+    return out.strip()
+
+
+def trim_wav_silence(wav_bytes: bytes, head_ms: int = 30, tail_ms: int = 80,
+                     threshold: float = 0.004) -> bytes:
+    """裁掉合成音频首尾的静音。
+
+    实测云端与本地都会在开头留 0.35–0.45 秒空白，听起来像"开场顿一下"。
+    只处理 16 位 PCM；解析失败或整段无声时原样返回，不影响合成主流程。
+    """
+    import io as _io
+    import wave as _wave
+
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy 已是运行依赖
+        return wav_bytes
+    try:
+        with _wave.open(_io.BytesIO(wav_bytes)) as r:
+            params = r.getparams()
+            frames = r.readframes(r.getnframes())
+    except Exception:  # noqa: BLE001
+        return wav_bytes
+    if params.sampwidth != 2 or not frames:
+        return wav_bytes
+
+    audio = np.frombuffer(frames, dtype="<i2")
+    loud = np.where(np.abs(audio) > int(threshold * 32767))[0]
+    if loud.size == 0:
+        return wav_bytes
+
+    ch = params.nchannels
+    sr = params.framerate
+    start = max(0, int(loud[0]) - int(sr * head_ms / 1000) * ch)
+    end = min(audio.size, int(loud[-1]) + int(sr * tail_ms / 1000) * ch)
+    start -= start % ch          # 对齐到帧边界，多声道不会错位
+    end -= end % ch
+    if start == 0 and end == audio.size:
+        return wav_bytes
+
+    out = _io.BytesIO()
+    with _wave.open(out, "wb") as w:
+        w.setparams(params)
+        w.writeframes(audio[start:end].tobytes())
+    return out.getvalue()
+
+
+def apply_pitch(wav_bytes: bytes, pitch: float) -> bytes:
+    """音高参数（代理实现）：按 pitch 倍变速，再重采样回原采样率。
+
+    变速不变调做不到"只改音高"，但急症场景要的就是整体沉下来、慢下来，
+    这个近似听感是"低声、放缓"，足够；speed 已同步调低，不会叠出"变尖"。
+    """
+    if not pitch or abs(pitch - 1.0) < 0.01:
+        return wav_bytes
+
+    import io as _io
+    import wave as _wave
+
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy 已是运行依赖
+        return wav_bytes
+    try:
+        with _wave.open(_io.BytesIO(wav_bytes)) as r:
+            params = r.getparams()
+            frames = r.readframes(r.getnframes())
+    except Exception:  # noqa: BLE001
+        return wav_bytes
+    if params.sampwidth != 2 or not frames:
+        return wav_bytes
+
+    audio = np.frombuffer(frames, dtype="<i2")
+    ch = params.nchannels
+    n = audio.size // ch
+    if n < 2:
+        return wav_bytes
+    src = np.arange(n, dtype=np.float64) * float(pitch)   # 双线性插值取样点
+    lo = np.floor(src).astype(np.int64)
+    hi = np.minimum(lo + 1, n - 1)
+    frac = (src - lo)[:, None]
+    x = audio.reshape(n, ch).astype(np.float64)
+    mixed = x[lo] * (1.0 - frac) + x[hi] * frac
+    out_audio = np.clip(np.rint(mixed), -32768, 32767).astype("<i2")
+
+    out = _io.BytesIO()
+    with _wave.open(out, "wb") as w:
+        w.setparams(params)
+        w.writeframes(out_audio.reshape(-1).tobytes())
+    return out.getvalue()
 
 
 def _not_implemented(what: str, hint: str = "download_models.py") -> None:
@@ -221,15 +386,21 @@ def tts(req: TTSRequest):
     engine=cloud 时走阿里百炼云端合成，失败自动回退本地；否则走本地引擎。
     未下载模型时返回 501；合成失败返回 500 并附带清晰错误信息。
     """
+    text = clean_for_tts(req.text)
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空（清洗后无可朗读内容）")
+
     if req.engine == "cloud":
+        # 云端 v3 是自回归大模型，语气跟着文本内容走，实测已正常，不额外干预。
         if not _cloud_tts.is_available():
             logger.warning("请求云端语音但未配置 DASHSCOPE_API_KEY，回退本地引擎")
         else:
             try:
-                wav_bytes = _cloud_tts.synthesize(
-                    req.text, voice=req.voice, speed=req.speed
+                wav_bytes = _cloud_tts.synthesize(text, voice=req.voice, speed=req.speed)
+                return Response(
+                    content=trim_wav_silence(wav_bytes),
+                    media_type="audio/wav",
                 )
-                return Response(content=wav_bytes, media_type="audio/wav")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("云端合成失败，回退本地引擎：%s", exc)
     if not _tts_ready():
@@ -240,22 +411,28 @@ def tts(req: TTSRequest):
         else:
             hint = "download_models.py"
         _not_implemented("TTS", hint)
+    # 本地引擎：CosyVoice2 用语气指令（音色不变、只改语气），
+    # Kokoro/Piper 没有指令能力，退回"放慢 + 压低音高"。
+    speed, pitch = tts_params(req.speed, req.risk)
+    instruct = instruct_for(req.risk) if TTS_ENGINE == "cosyvoice" else None
+    if instruct:
+        pitch = 1.0
     try:
-        with _TTS_LOCK:
-            if TTS_ENGINE == "kokoro":
+        with _tts_guard():
+            if TTS_ENGINE == "cosyvoice":
                 wav_bytes = _tts.synthesize(
-                    req.text, voice=req.voice or _TTS_DEFAULT_VOICE, speed=req.speed
+                    text, voice=req.voice, speed=speed, instruct=instruct
                 )
-            elif TTS_ENGINE == "cosyvoice":
+            elif TTS_ENGINE == "kokoro":
                 wav_bytes = _tts.synthesize(
-                    req.text, voice=req.voice or _TTS_DEFAULT_VOICE, speed=req.speed
+                    text, voice=req.voice or _TTS_DEFAULT_VOICE, speed=speed
                 )
             else:
-                wav_bytes = _tts.synthesize(req.text, speed=req.speed)
+                wav_bytes = _tts.synthesize(text, speed=speed)
     except Exception as exc:  # noqa: BLE001
         logger.warning("TTS 合成失败：%s", exc)
         raise HTTPException(status_code=500, detail=f"TTS 合成失败：{exc}")
-    return Response(content=wav_bytes, media_type="audio/wav")
+    return Response(content=apply_pitch(trim_wav_silence(wav_bytes), pitch), media_type="audio/wav")
 
 
 @app.post("/tts/stream")
@@ -263,48 +440,47 @@ def tts_stream(req: TTSRequest):
     """文本 -> 流式 PCM16（application/octet-stream），供前端边合成边播放。
 
     采样率 / 声道 / 位深通过响应头返回：X-Sample-Rate / X-Channels / X-Dtype。
-    仅 cosyvoice 引擎支持流式；其它引擎返回 501，前端应回退到 /tts。
+    只有云端引擎走流式；本地引擎一律 501，前端回退到 /tts 分块播放。
     """
+    text = clean_for_tts(req.text)
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空（清洗后无可朗读内容）")
     if req.engine == "cloud":
-        raise HTTPException(
-            status_code=501,
-            detail="云端语音暂不支持流式，请使用 /tts（非流式）",
-        )
-    if not _tts_ready():
-        if TTS_ENGINE == "cosyvoice":
-            hint = "download_cosyvoice2.py"
-        elif TTS_ENGINE == "kokoro":
-            hint = "download_kokoro.py"
+        # 云端 v3 是自回归大模型，语气跟着文本走，实测已正常，不额外干预。
+        if not _cloud_tts.is_available():
+            logger.warning("请求云端流式语音但未配置 DASHSCOPE_API_KEY，回退本地引擎")
         else:
-            hint = "download_models.py"
-        _not_implemented("TTS", hint)
-    if not hasattr(_tts, "synthesize_stream"):
-        raise HTTPException(
-            status_code=501,
-            detail="当前 TTS 引擎不支持流式合成（请使用 cosyvoice）",
-        )
-    try:
-        sample_rate = _tts.get_sample_rate()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("读取采样率失败：%s", exc)
-        sample_rate = 24000
+            # 先取到第一块再返回响应头：连接/鉴权失败能干净地回退到 /tts，
+            # 而不是先回 200 再断流。
+            try:
+                gen = _cloud_tts.synthesize_stream_pcm(text, voice=req.voice, speed=req.speed)
+                first = next(gen)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("云端流式合成失败，回退本地引擎：%s", exc)
+            else:
+                def _cloud_gen():
+                    yield first
+                    yield from gen
 
-    def _gen():
-        try:
-            with _TTS_LOCK:
-                for pcm in _tts.synthesize_stream(req.text, speed=req.speed):
-                    yield pcm
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("TTS 流式合成失败：%s", exc)
-
-    return StreamingResponse(
-        _gen(),
-        media_type="application/octet-stream",
-        headers={
-            "X-Sample-Rate": str(sample_rate),
-            "X-Channels": "1",
-            "X-Dtype": "int16",
-        },
+                return StreamingResponse(
+                    _cloud_gen(),
+                    media_type="application/octet-stream",
+                    headers={
+                        "X-Sample-Rate": "24000",
+                        "X-Channels": "1",
+                        "X-Dtype": "int16",
+                        "Cache-Control": "no-cache",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+    # 本地引擎不做流式：实测 CosyVoice2 流式 1 秒音频要 1.2–2.2 秒才合成完
+    # （RTF > 1，边收边播必然断粮），整段合成的 RTF 只有 0.7–1.0，前端分块
+    # + 预取反而更顺。另外同步生成器会被客户端中断打断，而它同时持有模型锁，
+    # 中途断开会把锁永久卡住——后续所有合成都排队等死。所以这里直接 501，
+    # 让前端走 /tts 的分块路径。
+    raise HTTPException(
+        status_code=501,
+        detail="本地引擎不提供流式合成，请使用 /tts（前端会自动回退到分块播放）",
     )
 
 

@@ -117,8 +117,14 @@ Uvicorn running on http://127.0.0.1:8100
 |------|------|------|------|
 | `/health` | GET | — | `{"status","service","version","contract","asr","tts"}` |
 | `/asr` | POST | body=原始音频字节(wav)；query `language=zh` | `{"text","is_final","confidence"}` |
-| `/tts` | POST | json `{"text","voice","format","speed"}` | `audio/wav` 字节流 |
+| `/tts` | POST | json `{"text","voice","format","speed","engine","risk"}` | `audio/wav` 字节流 |
+| `/tts/stream` | POST | 同上（仅 `engine=cloud`；本地引擎返回 501） | `application/octet-stream` PCM16 流 |
 | `/voice/stream` | WS | — | 事件流（见下） |
+
+`risk`（可选，`R0`~`R3`）只影响**播报语气**，文字一个字都不改，见 `voice_service/tone.py`：
+- 本地 CosyVoice2：走 `inference_instruct2`，指令位写「用沉重、低落、关切的语气说，语速放慢，不要带笑意」，音色仍是同一段参考音频；
+- 本地 Kokoro / Piper：没有语气维度，只能放慢到 0.82 倍、并用 `apply_pitch` 把音高压到 0.94；
+- 云端 CosyVoice v3：语气跟着文本内容走，实测已正常，不做干预。
 
 ### WS 事件名（冻结）
 
@@ -132,6 +138,9 @@ Uvicorn running on http://127.0.0.1:8100
 - `/health`：永远 200；模型就绪时 `asr`/`tts` 为 `true`。
 - `/asr`：本地 Paraformer 中文识别；模型未下载时返回 501。
 - `/tts`：本地中文合成（wav）；有 `llm.pt` 时自动用 CosyVoice2，否则用 Kokoro；模型都未下载时返回 501。
+- `/tts/stream`：前端边收边播的通道，只对 `engine=cloud` 开放（百炼 WebSocket）。
+  本地引擎一律返回 501，前端回退 `/tts` 分块播放：实测 CosyVoice2 流式的 RTF 是 1.2–2.2
+  （比实时还慢，边收边播必然断粮），整段合成的 RTF 只有 0.7–1.0。
 - `/voice/stream`：流式识别（`speech_start`/`partial`/`final`）+ 打断（`interrupt`）。
 
 ### TTS 引擎切换

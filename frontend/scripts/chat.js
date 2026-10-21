@@ -814,13 +814,14 @@
     }) || null;
   }
 
-  function speak(text) {
+  // risk 决定播报语气（R3 放慢、压低），见 voice_service/tone.py
+  function speak(text, risk) {
     /* 第三阶段接线：后端 VOICE_ENABLED=1 且 voice_service TTS 就绪时走本地语音服务，
        不可用/失败时自动回退浏览器合成，打字版行为不受影响。
        只要后端声明开了语音（voiceWanted）就先交给本地服务试——它内部会按需重探，
        服务确实不可用时返回 false，这一句再回退浏览器。 */
     if (window.XiaonuanVoice && (voiceWanted || XiaonuanVoice.canSpeak())) {
-      XiaonuanVoice.speak(text).then(function (ok) {
+      XiaonuanVoice.speak(text, risk).then(function (ok) {
         if (!ok) speakWithBrowser(text);
       });
       return;
@@ -992,7 +993,7 @@
       tts.setAttribute("aria-label", "朗读这条回复");
       tts.title = "朗读";
       tts.appendChild(icon("i-speaker"));
-      tts.addEventListener("click", function () { speak(bubble.textContent); });
+      tts.addEventListener("click", function () { speak(bubble.textContent, risk); });
       meta.appendChild(tts);
     }
 
@@ -1005,7 +1006,7 @@
     var wrapper = { el: msg, bubble: bubble, meta: meta, feedback: feedback };
     if (risk || (scenes && scenes.length)) updateMessageRisk(wrapper, risk, scenes);
 
-    if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent);
+    if (role === "assistant" && autoTtsEnabled && content && !silent) speak(bubble.textContent, risk);
     scrollToBottom();
     return wrapper;
   }
@@ -1289,7 +1290,7 @@
             enableFeedback(msg, evt.data.audit_id);
             lastAssistantMsg = msg;
             messages.push({ role: "assistant", content: assistantText });
-            if (autoTtsEnabled) speak(msg.bubble.textContent);
+            if (autoTtsEnabled) speak(msg.bubble.textContent, evt.data.risk);
             finished = true;
             announce("小暖已回复");
           } else if (evt.event === "error") {

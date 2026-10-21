@@ -100,6 +100,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1
 然后浏览器打开 `frontend/chat.html`，在设置里确认后端地址。
 
 - 只准备环境、不启动：`--setup-only`（PowerShell 用 `-SetupOnly`）。
+- 依赖装过一次后会自动跳过安装（实测启动从 375 秒降到 2 秒）；要强制重装：`-ForceInstall`。
 - 改端口 / 监听地址：`--port 8080`、`--host 0.0.0.0`。
 
 > 别人运行本项目，必须自备一个 `DEEPSEEK_API_KEY`（仓库不包含任何密钥）。

@@ -1,12 +1,13 @@
 ﻿# 小暖健康陪护 · 一键运行脚本（Windows）
-# 用法: powershell -ExecutionPolicy Bypass -File scripts\run.ps1 [-SetupOnly] [-NoTools] [-ListenHost H] [-Port P] [-Voice]
+# 用法: powershell -ExecutionPolicy Bypass -File scripts\run.ps1 [-SetupOnly] [-NoTools] [-ListenHost H] [-Port P] [-Voice] [-ForceInstall]
 [CmdletBinding()]
 param(
     [switch]$SetupOnly,
     [switch]$NoTools,
     [string]$ListenHost = "127.0.0.1",
     [int]$Port = 8000,
-    [switch]$Voice
+    [switch]$Voice,
+    [switch]$ForceInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,13 +44,50 @@ if (-not (Test-Path $venvPython)) {
     }
 }
 
-Write-Host "==> 安装后端依赖"
-& $venvPython -m pip install --upgrade pip | Out-Null
-& $venvPython -m pip install -r backend/requirements.txt
+# ── 依赖：要求文件没变且关键包可导入就跳过，避免每次启动都等 pip ──────
+# 装过一次后按 requirements 内容 + Python 版本打一个戳；戳对得上就跳过。
+# 要强制重装：加 -ForceInstall。
+function Get-ReqFiles {
+    $files = @("backend/requirements.txt")
+    if (-not $NoTools -and (Test-Path "tools/requirements.txt")) {
+        $files += "tools/requirements.txt"
+    }
+    return $files
+}
 
-if (-not $NoTools -and (Test-Path "tools/requirements.txt")) {
-    Write-Host "==> 安装 tools 依赖"
-    & $venvPython -m pip install -r tools/requirements.txt
+function Get-ReqStamp([string[]]$files) {
+    $hash = ($files | ForEach-Object { (Get-FileHash $_ -Algorithm SHA256).Hash }) -join "|"
+    $pyVer = (& $venvPython -c "import sys;print(sys.version.split()[0])" 2>$null)
+    return "$hash|$pyVer"
+}
+
+$reqFiles = Get-ReqFiles
+$stampFile = Join-Path $Root ".venv\.install-stamp"
+$needInstall = $true
+
+if (-not $ForceInstall -and (Test-Path $stampFile)) {
+    $want = Get-ReqStamp $reqFiles
+    $have = (Get-Content $stampFile -Raw -ErrorAction SilentlyContinue)
+    if ($have -and $have.Trim() -eq $want) {
+        # 戳对得上，再确认关键包真的能导入（防止手删过 site-packages）
+        & $venvPython -c "import fastapi, uvicorn, pydantic" 2>$null
+        if ($LASTEXITCODE -eq 0) { $needInstall = $false }
+    }
+}
+
+if ($needInstall) {
+    Write-Host "==> 安装后端依赖"
+    & $venvPython -m pip install --upgrade pip | Out-Null
+    & $venvPython -m pip install -r backend/requirements.txt
+
+    if (-not $NoTools -and (Test-Path "tools/requirements.txt")) {
+        Write-Host "==> 安装 tools 依赖"
+        & $venvPython -m pip install -r tools/requirements.txt
+    }
+
+    Set-Content -Path $stampFile -Value (Get-ReqStamp $reqFiles) -Encoding UTF8
+} else {
+    Write-Host "==> 依赖已满足（requirements.txt 未变），跳过安装；要强制重装加 -ForceInstall"
 }
 
 # ── .env ─────────────────────────────────────────────────────

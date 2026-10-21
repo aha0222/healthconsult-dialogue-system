@@ -4,8 +4,11 @@
    职责（组长接线，Day0 契约见 voice_service/README.md）：
    - 探活 /health，读取 asr / tts 能力位
    - ASR：麦克风 PCM 采集 → 16kHz 单声道 WAV → POST /asr → 文本
-   - TTS：POST /tts → audio/wav 字节流 → 逐句队列播放（首句快出声，
-     播放中预取下一句衔接，可打断）
+   - TTS：POST /tts/stream 边收边播（云端 PCM 流，首句约 0.4 秒出声）；
+     服务端不支持流式时回退 POST /tts 整段合成 —— 先播首块（≤45 字），
+     播的同时预取下一块。分块是刻意的：受接口单次时长限制，不切会被截断。
+     整段合成而非逐句：逐句时每句没有上下文，音高会一句一个样。
+     本地引擎同样走这条路径（CosyVoice2 自己有流式，其它引擎走分块）。
    - 语音服务未启动 / 未实现（501）时：canListen/canSpeak 为 false，
      调用方（chat.js）自动回退浏览器 Web Speech 或打字输入。
 
@@ -253,33 +256,61 @@
     }
   }
 
-  /* ── TTS：/tts → Audio 播放（逐句队列，可打断）────────── */
+  /* ── TTS：云端走流式（边收边播），本地走整段/分块 ─────────── */
 
   var currentPlayer = null;
-  var speakToken = 0;         // 打断代次：speak/stopSpeaking 递增，旧队列回调随之失效
-  var SENTENCE_GAP_MS = 100;  // 句间停顿：服务端已裁拖尾静音，由播放端补一拍
+  var speakToken = 0;         // 打断代次：speak/stopSpeaking 递增，旧回调随之失效
+
+  // 流式播放用 Web Audio：一串 AudioBuffer 按时间戳排好，首块到了就能出声
+  var audioCtx = null;
+  var activeSources = [];
+  var streamUntil = 0;        // 已排到的时间点（AudioContext 时钟）
+  var streamBroken = false;   // 流式被服务端拒绝过一次就不再试（避免每条回复都先失败一次）
+  var streamBrokenFor = null; // 记录是在哪种语音模式下被拒的
+
+  function ensureAudioContext() {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!audioCtx) {
+      try { audioCtx = new Ctx(); } catch (e) { return null; }
+    }
+    if (audioCtx.state === "suspended") {
+      try { audioCtx.resume(); } catch (e) { /* ignore */ }
+    }
+    return audioCtx;
+  }
+
+  function stopStream() {
+    for (var i = 0; i < activeSources.length; i++) {
+      try { activeSources[i].stop(); } catch (e) { /* ignore */ }
+    }
+    activeSources = [];
+    streamUntil = 0;
+  }
 
   function stopSpeaking() {
     speakToken++;
+    stopStream();
     if (currentPlayer) {
       try { currentPlayer.pause(); } catch (e) { /* ignore */ }
       currentPlayer = null;
     }
   }
 
-  // 是否有句子正在播：供前端判断"老人在小暖没说完时插话"（打断信号）
+  // 是否正在播：供前端判断"老人在小暖没说完时插话"（打断信号）
   function isSpeaking() {
-    return !!currentPlayer;
+    if (currentPlayer) return true;
+    return !!audioCtx && audioCtx.currentTime < streamUntil;
   }
 
   // 请求 /tts 并封装成 Audio 对象（服务端 LRU 缓存使重复文本零合成）
-  function requestTts(text) {
+  function requestTts(text, risk) {
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return Promise.resolve(null);
     return fetchWithTimeout(state.baseUrl + "/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9, engine: engineMode() }),
+      body: JSON.stringify({ text: clean, format: "wav", speed: 0.9, engine: engineMode(), risk: risk || null }),
     }, 120000)
       .then(function (resp) {
         if (resp.status === 501) return null;
@@ -297,7 +328,23 @@
       });
   }
 
-  // 与服务端 split_sentences 对齐：按 。！？；… 与换行切句
+  // 按句切分，再把句子拼成"块"：首块小（快出声）、后续块尽量大（少接缝）。
+  // 云端与非云端的合成/播放速度差很多，块大小要分开算：
+  //   云端 合成约 0.05 秒/字、播放约 0.23 秒/字 → 后续块可以是首块的 3.5 倍
+  //   本地 CosyVoice2 合成约 0.17 秒/字、播放约 0.23 秒/字（只快 1.4 倍）
+  var CLOUD_FIRST_CHARS = 45;
+  var CLOUD_REST_CHARS = 90;
+  var LOCAL_FIRST_CHARS = 30;   // 本地合成慢：首块再小一点，约 5 秒能出声
+  var LOCAL_REST_CHARS = 60;
+  var REST_MIN_CHARS = 20;
+  var CHUNK_GAP_MS = 80;        // 块间留一点停顿（服务端已裁掉首尾静音）
+
+  function chunkBudget() {
+    return engineMode() === "cloud"
+      ? { first: CLOUD_FIRST_CHARS, rest: CLOUD_REST_CHARS, ratio: 3.5 }
+      : { first: LOCAL_FIRST_CHARS, rest: LOCAL_REST_CHARS, ratio: 1.4 };
+  }
+
   function splitForPlayback(text) {
     var parts = [];
     var re = /[^。！？；…\n]+[。！？；…\n]*/g;
@@ -310,11 +357,104 @@
     return parts;
   }
 
-  function speak(text) {
+  function chunkForPlayback(text) {
+    /* 后续块的大小跟着首块走：第 i+1 块必须在第 i 块播完之前合成好，
+       所以按"播放/合成"的倍数（云端约 4.7 倍、本地约 1.4 倍）留一点余量。
+       首块若很短（比如只有一句"朱阿姨，您说的是血压吧？"），后面就跟着切小一点，
+       否则会出现"首句播完了、第二块还在合成"的空档。 */
+    var budget = chunkBudget();
+    var sentences = splitForPlayback(text);
+    var chunks = [];
+    var cur = "";
+    var restLimit = budget.rest;
+    for (var i = 0; i < sentences.length; i++) {
+      var limit = chunks.length === 0 ? budget.first : restLimit;
+      if (cur && cur.length + sentences[i].length > limit) {
+        chunks.push(cur);
+        cur = "";
+        restLimit = Math.max(
+          REST_MIN_CHARS,
+          Math.min(budget.rest, Math.floor(chunks[0].length * budget.ratio))
+        );
+      }
+      cur += sentences[i];
+    }
+    if (cur) chunks.push(cur);
+    return chunks;
+  }
+
+  /* 流式播放：/tts/stream 返回 PCM16 块，按 AudioContext 时钟顺序排好。
+     实测首块 0.7 秒到达（非流式同内容要 3.2 秒），且是一个会话、语调统一。 */
+  function streamSpeak(text, risk, myToken) {
+    // 本地引擎固定 501，记住"这个模式下别试了"；换成云端要重新给一次机会
+    if (streamBroken && streamBrokenFor === engineMode()) return Promise.resolve(false);
+    streamBroken = false;
+    var ctx = ensureAudioContext();
+    if (!ctx || !window.fetch) return Promise.resolve(false);
+    return fetchWithTimeout(state.baseUrl + "/tts/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text, format: "pcm", speed: 0.9, engine: engineMode(), risk: risk || null }),
+    }, 30000)
+      .then(function (resp) {
+        // 服务端明确拒绝（501/额度/引擎不支持）→ 本次会话不再尝试流式；
+        // 网络抖动不算，下次还会试。
+        if (!resp.ok || !resp.body) { streamBroken = true; streamBrokenFor = engineMode(); return false; }
+        var sampleRate = parseInt(resp.headers.get("X-Sample-Rate") || "24000", 10);
+        var reader = resp.body.getReader();
+        var carry = null;   // Int16 是 2 字节对齐，跨块时要留半个采样
+        var nextTime = ctx.currentTime + 0.08;
+        var started = false;
+
+        function schedule(bytes) {
+          var buf = bytes;
+          if (carry) {
+            buf = new Uint8Array(carry.length + bytes.length);
+            buf.set(carry, 0);
+            buf.set(bytes, carry.length);
+            carry = null;
+          }
+          if (buf.length % 2) {
+            carry = buf.slice(buf.length - 1);
+            buf = buf.slice(0, buf.length - 1);
+          }
+          if (!buf.length) return;
+          var samples = new Int16Array(buf.buffer, buf.byteOffset, buf.length / 2);
+          var audioBuffer = ctx.createBuffer(1, samples.length, sampleRate);
+          var data = audioBuffer.getChannelData(0);
+          for (var i = 0; i < samples.length; i++) data[i] = samples[i] / 32768;
+          var src = ctx.createBufferSource();
+          src.buffer = audioBuffer;
+          src.connect(ctx.destination);
+          var when = Math.max(nextTime, ctx.currentTime + 0.02);
+          src.start(when);
+          nextTime = when + audioBuffer.duration;
+          streamUntil = nextTime;
+          activeSources.push(src);
+          started = true;
+        }
+
+        function pump() {
+          return reader.read().then(function (r) {
+            if (myToken !== speakToken) {
+              try { reader.cancel(); } catch (e) { /* ignore */ }
+              return started;
+            }
+            if (r.done) return started;
+            schedule(r.value);
+            return pump();
+          });
+        }
+        return pump().catch(function () { return started; });
+      })
+      .catch(function () { return false; });
+  }
+
+  function speak(text, risk) {
     if (!canSpeak()) {
       // 未就绪（含"页面早于服务打开"的首播）：按需重探一次再决定
       return ensureReady().then(function () {
-        if (canSpeak()) return speak(text);
+        if (canSpeak()) return speak(text, risk);
         return false;
       });
     }
@@ -322,16 +462,27 @@
     var clean = (text || "").replace(/\s*\[(?:RISK|SCENE):[^\]]+\]\s*/g, " ").trim();
     if (!clean) return Promise.resolve(true);
 
-    var parts = splitForPlayback(clean);
-    if (!parts.length) return Promise.resolve(true);
+    /* 先试流式：边合成边播，首块约 0.7 秒（非流式 66 字要 3.2 秒、200 字要 10 秒以上），
+       而且整段是一个会话，语调统一。流式不可用（501/网络/浏览器不支持 Web Audio）
+       再退回下面的分块方案。 */
+    var myToken = speakToken;
+    return streamSpeak(clean, risk, myToken).then(function (ok) {
+      if (ok) return true;
+      if (myToken !== speakToken) return true;   // 已被新一轮接管
+      return speakChunked(clean, risk);
+    });
+  }
 
-    /* 逐句队列：第 i 句一起播就预取第 i+1 句。GPU 合成远快于播放时长，
-       句间只剩固定小停顿。旧方案"首句 + 整段 rest"在文本稍长后，
-       rest 整段合成慢于首句播放，句间空档随文本变长而拉大。 */
+  /* 分块 + 预取（流式不可用时的兜底）。为什么不整段一次：云端非流式要等全部合成完，
+     200 字要等 10 秒以上。为什么不逐句：每块独立合成，块越小语调跳变越明显
+     （实测逐句时相邻三句 233→189→175 Hz）。所以首块 45 字（约 2 秒出声），
+     之后每块最多 90 字，第 i 块在播时就去取第 i+1 块——生成远快于播放，不会有空档。 */
+  function speakChunked(clean, risk) {
+    var chunks = chunkForPlayback(clean);
     var myToken = speakToken;
     var idx = 0;
-    var nextPromise = requestTts(parts[idx++]);
-    var started = false;  // 是否至少成功起播过一句（决定是否回退浏览器 TTS）
+    var nextPromise = requestTts(chunks[idx++], risk);
+    var started = false;   // 是否至少成功起播过一块（决定是否回退浏览器 TTS）
 
     return new Promise(function (resolve) {
       var settled = false;
@@ -342,26 +493,26 @@
         if (myToken !== speakToken) { done(true); return; }  // 被新一轮接管，不回退浏览器
         var cur = nextPromise;
         if (!cur) { done(started); return; }
-        nextPromise = idx < parts.length ? requestTts(parts[idx++]) : null;
+        nextPromise = idx < chunks.length ? requestTts(chunks[idx++], risk) : null;
         cur.then(function (audio) {
           if (myToken !== speakToken) { done(true); return; }
-          if (!audio) { playNext(); return; }
+          if (!audio) { playNext(); return; }                // 501/空块 → 跳过
           currentPlayer = audio;
           var advance = function () {
             audio.onended = audio.onerror = null;
-            URL.revokeObjectURL(audio.src);
-            currentPlayer = null;
+            try { URL.revokeObjectURL(audio.src); } catch (e) { /* ignore */ }
+            if (currentPlayer === audio) currentPlayer = null;
             if (myToken !== speakToken) { done(true); return; }
             if (nextPromise) {
-              setTimeout(function () { if (myToken === speakToken) playNext(); }, SENTENCE_GAP_MS);
+              setTimeout(function () { if (myToken === speakToken) playNext(); }, CHUNK_GAP_MS);
             } else {
-              done(true);
+              done(started);
             }
           };
           audio.onended = advance;
           audio.onerror = advance;
           audio.play().then(function () { started = true; }).catch(function () {
-            advance();  // 起播失败跳过该句；若首句即失败，started=false → 回退浏览器 TTS
+            advance();  // 起播被拦截就跳过这块；一块都没播成才回退浏览器
           });
         }).catch(function () {
           if (myToken !== speakToken) { done(true); return; }
